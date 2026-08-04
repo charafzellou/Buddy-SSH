@@ -111,3 +111,43 @@ dist
 
 # TernJS port file
 .tern-port
+
+# ---- Buddy-SSH additions ----
+
+# Go build artifacts
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go workspace sum (keep go.work, ignore sum)
+go.work.sum
+
+# Frontend / shared build output
+apps/frontend/dist/
+packages/shared/dist/
+
+# Environment / secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Coverage
+*.cover
+coverage.txt
+
+# Docker local data
+docker/data/

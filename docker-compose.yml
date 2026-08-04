@@ -1,0 +1,18 @@
+services:
+  buddy-ssh:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: buddy-ssh:dev
+    ports:
+      - "8443:8443"
+    environment:
+      BUDDY_SSH_TOKEN: ${BUDDY_SSH_TOKEN:-dev-token-change-me}
+      BUDDY_SSH_ALLOWED_ORIGINS: ${BUDDY_SSH_ALLOWED_ORIGINS:-http://localhost:5173}
+    healthcheck:
+      test: ["CMD", "/app/buddy-ssh", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped

@@ -1,0 +1,28 @@
+{
+  "name": "buddy-ssh",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/frontend", "packages/shared"],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,green \"cd apps/backend && go run ./cmd/buddy-ssh\" \"bun run --filter @buddy-ssh/frontend dev\"",
+    "build": "bun run --filter @buddy-ssh/shared build && bun run --filter @buddy-ssh/frontend build && cd apps/backend && go build -o ../../bin/buddy-ssh ./cmd/buddy-ssh",
+    "test": "bun run --filter @buddy-ssh/shared test && bun run --filter @buddy-ssh/frontend test && cd apps/backend && go test ./...",
+    "test:backend": "cd apps/backend && go test ./...",
+    "test:frontend": "bun run --filter @buddy-ssh/shared test && bun run --filter @buddy-ssh/frontend test",
+    "lint": "biome check . && cd apps/backend && golangci-lint run",
+    "lint:frontend": "biome check .",
+    "lint:backend": "cd apps/backend && golangci-lint run",
+    "format": "biome format --write . && cd apps/backend && gofmt -w .",
+    "gen-protocol": "bun run scripts/gen-protocol.ts",
+    "docker-build": "docker build -f docker/Dockerfile -t buddy-ssh:dev .",
+    "docker-up": "docker compose up -d --build",
+    "docker-down": "docker compose down"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.6",
+    "ajv": "^8.20.0",
+    "concurrently": "^10.0.4",
+    "typescript": "^7.0.2"
+  }
+}

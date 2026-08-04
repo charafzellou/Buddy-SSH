@@ -1,0 +1,42 @@
+# golangci-lint v2 configuration for Buddy-SSH backend.
+# Aligned with NFR-M1 (zero lint errors in CI).
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.26.5"
+
+linters:
+  default: standard
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - gocritic
+    - revive
+    - misspell
+
+  settings:
+    gosec:
+      excludes:
+        - G104  # unhandled errors are checked by errcheck
+    revive:
+      rules:
+        - name: exported
+          disabled: true  # internal packages; not all exported symbols need comments yet
+
+  exclusions:
+    presets:
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - "vendor"
+      - ".*_test\\.go"
+      - "protocol_gen.*"  # generated code
+
+issues:
+  max-same-issues: 0
