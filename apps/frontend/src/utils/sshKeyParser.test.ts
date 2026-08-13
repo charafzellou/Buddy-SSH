@@ -78,59 +78,59 @@ kpoz+YZglaLD0t9ZVmMbOtUW5E8TbVByT37EjCVAoHkUc+S3heAe6GYMT+hqb497
 -----END RSA PRIVATE KEY-----`
 
 describe('parseSshPrivateKey', () => {
-	it('parses an unencrypted OpenSSH ed25519 key', () => {
-		const result = parseSshPrivateKey(unencryptedEd25519)
+  it('parses an unencrypted OpenSSH ed25519 key', () => {
+    const result = parseSshPrivateKey(unencryptedEd25519)
 
-		expect(result).toEqual({ status: 'ok', info: { type: 'ed25519', comment: '' } })
-	})
+    expect(result).toEqual({ status: 'ok', info: { type: 'ed25519', comment: '' } })
+  })
 
-	it('parses an unencrypted PEM RSA key', () => {
-		const result = parseSshPrivateKey(unencryptedRsaPem)
+  it('parses an unencrypted PEM RSA key', () => {
+    const result = parseSshPrivateKey(unencryptedRsaPem)
 
-		expect(result).toEqual({ status: 'ok', info: { type: 'rsa', comment: '' } })
-	})
+    expect(result).toEqual({ status: 'ok', info: { type: 'rsa', comment: '' } })
+  })
 
-	it('reports an OpenSSH key as encrypted (type still readable from the cleartext pubkey section)', () => {
-		const result = parseSshPrivateKey(encryptedEd25519)
+  it('reports an OpenSSH key as encrypted (type still readable from the cleartext pubkey section)', () => {
+    const result = parseSshPrivateKey(encryptedEd25519)
 
-		expect(result).toEqual({ status: 'encrypted', info: { type: 'ed25519' } })
-	})
+    expect(result).toEqual({ status: 'encrypted', info: { type: 'ed25519' } })
+  })
 
-	it('reports an encrypted PEM RSA key as encrypted when no passphrase is given', () => {
-		const result = parseSshPrivateKey(encryptedRsaPem)
+  it('reports an encrypted PEM RSA key as encrypted when no passphrase is given', () => {
+    const result = parseSshPrivateKey(encryptedRsaPem)
 
-		expect(result).toEqual({ status: 'encrypted', info: { type: 'rsa' } })
-	})
+    expect(result).toEqual({ status: 'encrypted', info: { type: 'rsa' } })
+  })
 
-	it('accepts an encrypted PEM RSA key given the correct passphrase', () => {
-		const result = parseSshPrivateKey(encryptedRsaPem, 'rsapass')
+  it('accepts an encrypted PEM RSA key given the correct passphrase', () => {
+    const result = parseSshPrivateKey(encryptedRsaPem, 'rsapass')
 
-		expect(result).toEqual({ status: 'ok', info: { type: 'rsa', comment: '' } })
-	})
+    expect(result).toEqual({ status: 'ok', info: { type: 'rsa', comment: '' } })
+  })
 
-	it('rejects an encrypted PEM RSA key given the wrong passphrase', () => {
-		const result = parseSshPrivateKey(encryptedRsaPem, 'wrong-passphrase')
+  it('rejects an encrypted PEM RSA key given the wrong passphrase', () => {
+    const result = parseSshPrivateKey(encryptedRsaPem, 'wrong-passphrase')
 
-		expect(result.status).toBe('invalid')
-	})
+    expect(result.status).toBe('invalid')
+  })
 
-	it('rejects an invalid/garbage key', () => {
-		const result = parseSshPrivateKey('not a real key')
+  it('rejects an invalid/garbage key', () => {
+    const result = parseSshPrivateKey('not a real key')
 
-		expect(result.status).toBe('invalid')
-	})
+    expect(result.status).toBe('invalid')
+  })
 
-	it('rejects an empty key', () => {
-		const result = parseSshPrivateKey('   ')
+  it('rejects an empty key', () => {
+    const result = parseSshPrivateKey('   ')
 
-		expect(result).toEqual({ status: 'invalid', message: 'Key is empty' })
-	})
+    expect(result).toEqual({ status: 'invalid', message: 'Key is empty' })
+  })
 
-	it('rejects a truncated/malformed OpenSSH key', () => {
-		const result = parseSshPrivateKey(
-			'-----BEGIN OPENSSH PRIVATE KEY-----\nYWJjZGVmZ2g=\n-----END OPENSSH PRIVATE KEY-----',
-		)
+  it('rejects a truncated/malformed OpenSSH key', () => {
+    const result = parseSshPrivateKey(
+      '-----BEGIN OPENSSH PRIVATE KEY-----\nYWJjZGVmZ2g=\n-----END OPENSSH PRIVATE KEY-----',
+    )
 
-		expect(result.status).toBe('invalid')
-	})
+    expect(result.status).toBe('invalid')
+  })
 })

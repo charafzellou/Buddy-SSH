@@ -18,15 +18,18 @@
 let cachedKey: Promise<CryptoKey> | null = null
 
 export function getInterimKnownHostsKey(): Promise<CryptoKey> {
-	if (!cachedKey) {
-		cachedKey = crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
-	}
+  if (!cachedKey) {
+    cachedKey = crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
+      'encrypt',
+      'decrypt',
+    ])
+  }
 
-	return cachedKey
+  return cachedKey
 }
 
 // resetInterimKnownHostsKeyForTests forces a fresh key on the next call,
 // simulating "key lost across reload" for tests.
 export function resetInterimKnownHostsKeyForTests(): void {
-	cachedKey = null
+  cachedKey = null
 }

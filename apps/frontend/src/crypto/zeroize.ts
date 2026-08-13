@@ -13,6 +13,9 @@
 // across jsdom/Node global boundaries in tests (see services/storage.ts's
 // deepToRaw for the bug this exact mistake caused).
 export function zeroize(buffer: Uint8Array | ArrayBuffer): void {
-	const view = Object.prototype.toString.call(buffer) === '[object ArrayBuffer]' ? new Uint8Array(buffer as ArrayBuffer) : (buffer as Uint8Array)
-	view.fill(0)
+  const view =
+    Object.prototype.toString.call(buffer) === '[object ArrayBuffer]'
+      ? new Uint8Array(buffer as ArrayBuffer)
+      : (buffer as Uint8Array)
+  view.fill(0)
 }

@@ -1,22 +1,22 @@
 <script setup lang="ts">
-import type { PublicKeySubmission } from '@/services/authSubmission'
-import { parseSshPrivateKey } from '@/utils/sshKeyParser'
 import type { KbdInteractiveChallenge } from '@buddy-ssh/shared'
 import { computed, nextTick, ref, watch } from 'vue'
+import type { PublicKeySubmission } from '@/services/authSubmission'
+import { parseSshPrivateKey } from '@/utils/sshKeyParser'
 
 export type AuthPromptMode = 'publickey' | 'kbdInteractive'
 
 const props = defineProps<{
-	open: boolean
-	mode: AuthPromptMode
-	challenge?: KbdInteractiveChallenge
+  open: boolean
+  mode: AuthPromptMode
+  challenge?: KbdInteractiveChallenge
 }>()
 
 const emit = defineEmits<{
-	(event: 'submit-key', payload: PublicKeySubmission): void
-	(event: 'submit-responses', payload: { responses: string[] }): void
-	(event: 'cancel'): void
-	(event: 'update:open', value: boolean): void
+  (event: 'submit-key', payload: PublicKeySubmission): void
+  (event: 'submit-responses', payload: { responses: string[] }): void
+  (event: 'cancel'): void
+  (event: 'update:open', value: boolean): void
 }>()
 
 const keyText = ref('')
@@ -24,19 +24,19 @@ const passphrase = ref('')
 const responses = ref<string[]>([])
 
 watch(
-	() => props.challenge,
-	(challenge) => {
-		responses.value = challenge ? challenge.prompts.map(() => '') : []
-	},
-	{ immediate: true },
+  () => props.challenge,
+  (challenge) => {
+    responses.value = challenge ? challenge.prompts.map(() => '') : []
+  },
+  { immediate: true },
 )
 
 const parseResult = computed(() => {
-	if (keyText.value.trim() === '') {
-		return null
-	}
+  if (keyText.value.trim() === '') {
+    return null
+  }
 
-	return parseSshPrivateKey(keyText.value, passphrase.value || undefined)
+  return parseSshPrivateKey(keyText.value, passphrase.value || undefined)
 })
 
 // For OpenSSH-format keys we can only detect "this key is encrypted", not
@@ -45,53 +45,58 @@ const parseResult = computed(() => {
 // allowed as soon as a passphrase is typed; an actually-wrong passphrase is
 // caught authoritatively by the backend's AUTH_FAILED response.
 const needsPassphrase = computed(() => parseResult.value?.status === 'encrypted')
-const keyError = computed(() => (parseResult.value?.status === 'invalid' ? parseResult.value.message : ''))
+const keyError = computed(() =>
+  parseResult.value?.status === 'invalid' ? parseResult.value.message : '',
+)
 
 const canSubmitKey = computed(
-	() => keyText.value.trim() !== '' && keyError.value === '' && !(needsPassphrase.value && passphrase.value === ''),
+  () =>
+    keyText.value.trim() !== '' &&
+    keyError.value === '' &&
+    !(needsPassphrase.value && passphrase.value === ''),
 )
 
 function readFile(event: Event): void {
-	const input = event.target as HTMLInputElement
-	const file = input.files?.[0]
-	if (!file) {
-		return
-	}
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) {
+    return
+  }
 
-	const reader = new FileReader()
-	reader.onload = () => {
-		keyText.value = typeof reader.result === 'string' ? reader.result : ''
-	}
-	reader.readAsText(file)
+  const reader = new FileReader()
+  reader.onload = () => {
+    keyText.value = typeof reader.result === 'string' ? reader.result : ''
+  }
+  reader.readAsText(file)
 }
 
 function submitKey(): void {
-	if (!canSubmitKey.value) {
-		return
-	}
+  if (!canSubmitKey.value) {
+    return
+  }
 
-	const encoder = new TextEncoder()
-	const submission: PublicKeySubmission = {
-		key: encoder.encode(keyText.value),
-		passphrase: passphrase.value ? encoder.encode(passphrase.value) : undefined,
-	}
-	emit('submit-key', submission)
+  const encoder = new TextEncoder()
+  const submission: PublicKeySubmission = {
+    key: encoder.encode(keyText.value),
+    passphrase: passphrase.value ? encoder.encode(passphrase.value) : undefined,
+  }
+  emit('submit-key', submission)
 
-	keyText.value = ''
-	passphrase.value = ''
+  keyText.value = ''
+  passphrase.value = ''
 }
 
 async function submitResponses(): Promise<void> {
-	emit('submit-responses', { responses: [...responses.value] })
-	responses.value = responses.value.map(() => '')
-	await nextTick()
+  emit('submit-responses', { responses: [...responses.value] })
+  responses.value = responses.value.map(() => '')
+  await nextTick()
 }
 
 function cancel(): void {
-	keyText.value = ''
-	passphrase.value = ''
-	emit('cancel')
-	emit('update:open', false)
+  keyText.value = ''
+  passphrase.value = ''
+  emit('cancel')
+  emit('update:open', false)
 }
 </script>
 

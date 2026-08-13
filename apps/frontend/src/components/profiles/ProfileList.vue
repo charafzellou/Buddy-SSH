@@ -4,8 +4,8 @@ import type { Profile } from '@/services/storage'
 import { useProfileStore } from '@/stores/useProfileStore'
 
 const emit = defineEmits<{
-	(event: 'connect', profile: Profile): void
-	(event: 'edit', profile: Profile): void
+  (event: 'connect', profile: Profile): void
+  (event: 'edit', profile: Profile): void
 }>()
 
 const store = useProfileStore()

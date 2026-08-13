@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { useSessionStore } from '@/stores/useSessionStore'
 import { computed, ref, watch } from 'vue'
+import { useSessionStore } from '@/stores/useSessionStore'
 
 export type QuickConnectAuthMethod = 'password' | 'publickey' | 'keyboard-interactive'
 

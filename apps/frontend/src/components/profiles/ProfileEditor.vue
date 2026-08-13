@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import type { Profile } from '@/services/storage'
 import { computed, ref, watch } from 'vue'
+import type { Profile } from '@/services/storage'
 
 const props = defineProps<{
-	open: boolean
-	profile?: Profile | null
+  open: boolean
+  profile?: Profile | null
 }>()
 
 const emit = defineEmits<{
-	(event: 'save', profile: Profile): void
-	(event: 'cancel'): void
-	(event: 'update:open', value: boolean): void
+  (event: 'save', profile: Profile): void
+  (event: 'cancel'): void
+  (event: 'update:open', value: boolean): void
 }>()
 
 const nickname = ref('')
@@ -29,74 +29,76 @@ const color = ref('#38bdf8')
 const isEditing = computed(() => Boolean(props.profile?.id))
 
 watch(
-	() => [props.open, props.profile] as const,
-	([open, profile]) => {
-		if (!open) {
-			return
-		}
+  () => [props.open, props.profile] as const,
+  ([open, profile]) => {
+    if (!open) {
+      return
+    }
 
-		nickname.value = profile?.nickname ?? ''
-		host.value = profile?.host ?? ''
-		port.value = profile?.port ?? 22
-		username.value = profile?.username ?? ''
-		authType.value = profile?.authType ?? 'password'
-		tagsText.value = profile?.tags.join(', ') ?? ''
-		folder.value = profile?.folder ?? ''
-		notes.value = profile?.notes ?? ''
-		color.value = profile?.color ?? '#38bdf8'
-	},
-	{ immediate: true },
+    nickname.value = profile?.nickname ?? ''
+    host.value = profile?.host ?? ''
+    port.value = profile?.port ?? 22
+    username.value = profile?.username ?? ''
+    authType.value = profile?.authType ?? 'password'
+    tagsText.value = profile?.tags.join(', ') ?? ''
+    folder.value = profile?.folder ?? ''
+    notes.value = profile?.notes ?? ''
+    color.value = profile?.color ?? '#38bdf8'
+  },
+  { immediate: true },
 )
 
-const canSave = computed(() => nickname.value.trim() !== '' && host.value.trim() !== '' && username.value.trim() !== '')
+const canSave = computed(
+  () => nickname.value.trim() !== '' && host.value.trim() !== '' && username.value.trim() !== '',
+)
 
 function parseTags(text: string): string[] {
-	return text
-		.split(',')
-		.map((tag) => tag.trim())
-		.filter((tag) => tag !== '')
+  return text
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter((tag) => tag !== '')
 }
 
 function save(): void {
-	if (!canSave.value) {
-		return
-	}
+  if (!canSave.value) {
+    return
+  }
 
-	const now = Date.now()
-	const saved: Profile = {
-		id: props.profile?.id ?? createProfileID(),
-		nickname: nickname.value.trim(),
-		host: host.value.trim(),
-		port: port.value,
-		username: username.value.trim(),
-		authType: authType.value,
-		keyId: props.profile?.keyId,
-		tags: parseTags(tagsText.value),
-		folder: folder.value.trim() || undefined,
-		notes: notes.value.trim() || undefined,
-		color: color.value,
-		terminalPrefs: props.profile?.terminalPrefs ?? {},
-		connectionPrefs: props.profile?.connectionPrefs ?? {},
-		jumpHosts: props.profile?.jumpHosts,
-		createdAt: props.profile?.createdAt ?? now,
-		updatedAt: now,
-	}
+  const now = Date.now()
+  const saved: Profile = {
+    id: props.profile?.id ?? createProfileID(),
+    nickname: nickname.value.trim(),
+    host: host.value.trim(),
+    port: port.value,
+    username: username.value.trim(),
+    authType: authType.value,
+    keyId: props.profile?.keyId,
+    tags: parseTags(tagsText.value),
+    folder: folder.value.trim() || undefined,
+    notes: notes.value.trim() || undefined,
+    color: color.value,
+    terminalPrefs: props.profile?.terminalPrefs ?? {},
+    connectionPrefs: props.profile?.connectionPrefs ?? {},
+    jumpHosts: props.profile?.jumpHosts,
+    createdAt: props.profile?.createdAt ?? now,
+    updatedAt: now,
+  }
 
-	emit('save', saved)
-	close()
+  emit('save', saved)
+  close()
 }
 
 function close(): void {
-	emit('cancel')
-	emit('update:open', false)
+  emit('cancel')
+  emit('update:open', false)
 }
 
 function createProfileID(): string {
-	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-		return crypto.randomUUID()
-	}
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
 
-	return `profile-${Math.random().toString(36).slice(2, 10)}`
+  return `profile-${Math.random().toString(36).slice(2, 10)}`
 }
 </script>
 

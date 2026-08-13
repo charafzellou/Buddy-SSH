@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import { useSessionStore } from '@/stores/useSessionStore'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp, nextTick } from 'vue'
+import { useSessionStore } from '@/stores/useSessionStore'
 import QuickConnectDialog from './QuickConnectDialog.vue'
 
 describe('QuickConnectDialog', () => {

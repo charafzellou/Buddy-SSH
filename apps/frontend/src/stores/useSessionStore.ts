@@ -1,7 +1,7 @@
-import type { WebSocketTransport } from '@/services/transport'
 import type { StatusPayload } from '@buddy-ssh/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import type { WebSocketTransport } from '@/services/transport'
 
 export type SessionTransport = Pick<
   WebSocketTransport,

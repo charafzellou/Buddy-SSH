@@ -2,41 +2,41 @@
 import { computed, ref, watch } from 'vue'
 
 const props = defineProps<{
-	open: boolean
-	host: string
-	algorithm: string
-	oldFingerprint: string
-	newFingerprint: string
+  open: boolean
+  host: string
+  algorithm: string
+  oldFingerprint: string
+  newFingerprint: string
 }>()
 
 const emit = defineEmits<{
-	(event: 'repin'): void
-	(event: 'abort'): void
+  (event: 'repin'): void
+  (event: 'abort'): void
 }>()
 
 const confirmationText = ref('')
 
 watch(
-	() => props.open,
-	(open) => {
-		if (!open) {
-			confirmationText.value = ''
-		}
-	},
+  () => props.open,
+  (open) => {
+    if (!open) {
+      confirmationText.value = ''
+    }
+  },
 )
 
 const canRepin = computed(() => confirmationText.value.trim() === props.host)
 
 function repin(): void {
-	if (!canRepin.value) {
-		return
-	}
+  if (!canRepin.value) {
+    return
+  }
 
-	emit('repin')
+  emit('repin')
 }
 
 function abort(): void {
-	emit('abort')
+  emit('abort')
 }
 </script>
 

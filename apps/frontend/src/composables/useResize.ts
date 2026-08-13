@@ -71,8 +71,8 @@ export function useResize(options: UseResizeOptions): UseResizeHandle {
 }
 
 function sameMeasurement(
-	previous: ResizeMeasurement | undefined,
-	current: ResizeMeasurement,
+  previous: ResizeMeasurement | undefined,
+  current: ResizeMeasurement,
 ): boolean {
   if (
     previous?.pixelWidth != null &&
@@ -81,17 +81,16 @@ function sameMeasurement(
     current.pixelHeight != null
   ) {
     return (
-      previous.pixelWidth === current.pixelWidth &&
-      previous.pixelHeight === current.pixelHeight
+      previous.pixelWidth === current.pixelWidth && previous.pixelHeight === current.pixelHeight
     )
   }
 
-	return (
-		previous?.cols === current.cols &&
-		previous?.rows === current.rows &&
-		previous?.pixelWidth === current.pixelWidth &&
-		previous?.pixelHeight === current.pixelHeight
-	)
+  return (
+    previous?.cols === current.cols &&
+    previous?.rows === current.rows &&
+    previous?.pixelWidth === current.pixelWidth &&
+    previous?.pixelHeight === current.pixelHeight
+  )
 }
 
 function defaultCreateObserver(callback: ResizeObserverCallback): ResizeObserverLike {

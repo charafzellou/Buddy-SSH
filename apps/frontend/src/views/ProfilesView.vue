@@ -1,9 +1,9 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import ProfileEditor from '@/components/profiles/ProfileEditor.vue'
 import { exportProfiles, importProfiles, ProfileImportError } from '@/services/profileImportExport'
 import type { Profile } from '@/services/storage'
 import { useProfileStore } from '@/stores/useProfileStore'
-import { computed, ref } from 'vue'
 
 const store = useProfileStore()
 const isEditorOpen = ref(false)
@@ -15,98 +15,99 @@ const importError = ref<string | null>(null)
 const importSuccessCount = ref<number | null>(null)
 
 const folders = computed(() => {
-	const set = new Set<string>()
-	for (const profile of store.profiles) {
-		set.add(profile.folder?.trim() || 'Uncategorized')
-	}
-	return Array.from(set).sort()
+  const set = new Set<string>()
+  for (const profile of store.profiles) {
+    set.add(profile.folder?.trim() || 'Uncategorized')
+  }
+  return Array.from(set).sort()
 })
 
 const groupedProfiles = computed(() => {
-	const groups = new Map<string, Profile[]>()
-	for (const profile of store.profiles) {
-		const folder = profile.folder?.trim() || 'Uncategorized'
-		if (folderFilter.value && folder !== folderFilter.value) {
-			continue
-		}
+  const groups = new Map<string, Profile[]>()
+  for (const profile of store.profiles) {
+    const folder = profile.folder?.trim() || 'Uncategorized'
+    if (folderFilter.value && folder !== folderFilter.value) {
+      continue
+    }
 
-		const list = groups.get(folder) ?? []
-		list.push(profile)
-		groups.set(folder, list)
-	}
+    const list = groups.get(folder) ?? []
+    list.push(profile)
+    groups.set(folder, list)
+  }
 
-	return Array.from(groups.entries())
-		.sort(([a], [b]) => a.localeCompare(b))
-		.map(([folder, profiles]) => ({
-			folder,
-			profiles: profiles.sort((a, b) => a.nickname.localeCompare(b.nickname)),
-		}))
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([folder, profiles]) => ({
+      folder,
+      profiles: profiles.sort((a, b) => a.nickname.localeCompare(b.nickname)),
+    }))
 })
 
 function openNew(): void {
-	editingProfile.value = null
-	isEditorOpen.value = true
+  editingProfile.value = null
+  isEditorOpen.value = true
 }
 
 function openEdit(profile: Profile): void {
-	editingProfile.value = profile
-	isEditorOpen.value = true
+  editingProfile.value = profile
+  isEditorOpen.value = true
 }
 
 function handleSave(profile: Profile): void {
-	void store.save(profile)
+  void store.save(profile)
 }
 
 function requestDelete(id: string): void {
-	pendingDeleteId.value = id
+  pendingDeleteId.value = id
 }
 
 function cancelDelete(): void {
-	pendingDeleteId.value = null
+  pendingDeleteId.value = null
 }
 
 function confirmDelete(id: string): void {
-	void store.remove(id)
-	pendingDeleteId.value = null
+  void store.remove(id)
+  pendingDeleteId.value = null
 }
 
 function handleExport(): void {
-	const json = exportProfiles(store.profiles)
-	const blob = new Blob([json], { type: 'application/json' })
-	const url = URL.createObjectURL(blob)
-	const anchor = document.createElement('a')
-	anchor.href = url
-	anchor.download = `buddy-ssh-profiles-${new Date().toISOString().slice(0, 10)}.json`
-	anchor.click()
-	URL.revokeObjectURL(url)
+  const json = exportProfiles(store.profiles)
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `buddy-ssh-profiles-${new Date().toISOString().slice(0, 10)}.json`
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 function triggerImport(): void {
-	importError.value = null
-	importSuccessCount.value = null
-	importInput.value?.click()
+  importError.value = null
+  importSuccessCount.value = null
+  importInput.value?.click()
 }
 
 async function handleImportFile(event: Event): Promise<void> {
-	const input = event.target as HTMLInputElement
-	const file = input.files?.[0]
-	input.value = ''
-	if (!file) {
-		return
-	}
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) {
+    return
+  }
 
-	try {
-		const text = await file.text()
-		const imported = importProfiles(text)
-		for (const profile of imported) {
-			await store.save(profile)
-		}
-		importSuccessCount.value = imported.length
-		importError.value = null
-	} catch (error) {
-		importSuccessCount.value = null
-		importError.value = error instanceof ProfileImportError ? error.message : 'Failed to import profiles'
-	}
+  try {
+    const text = await file.text()
+    const imported = importProfiles(text)
+    for (const profile of imported) {
+      await store.save(profile)
+    }
+    importSuccessCount.value = imported.length
+    importError.value = null
+  } catch (error) {
+    importSuccessCount.value = null
+    importError.value =
+      error instanceof ProfileImportError ? error.message : 'Failed to import profiles'
+  }
 }
 </script>
 

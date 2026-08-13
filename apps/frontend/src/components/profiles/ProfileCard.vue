@@ -2,21 +2,21 @@
 import type { Profile } from '@/services/storage'
 
 const props = defineProps<{
-	profile: Profile
+  profile: Profile
 }>()
 
 const emit = defineEmits<{
-	(event: 'connect', profile: Profile): void
-	(event: 'edit', profile: Profile): void
+  (event: 'connect', profile: Profile): void
+  (event: 'edit', profile: Profile): void
 }>()
 
 function connect(): void {
-	emit('connect', props.profile)
+  emit('connect', props.profile)
 }
 
 function edit(event: MouseEvent): void {
-	event.stopPropagation()
-	emit('edit', props.profile)
+  event.stopPropagation()
+  emit('edit', props.profile)
 }
 </script>
 

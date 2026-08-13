@@ -6,11 +6,16 @@
 // produced it; HKDF's salt is optional and defaults to a zero-filled
 // buffer per RFC 5869 when omitted.
 export async function deriveSubkey(master: CryptoKey, info: string): Promise<CryptoKey> {
-	return crypto.subtle.deriveKey(
-		{ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode(info) },
-		master,
-		{ name: 'AES-GCM', length: 256 },
-		false,
-		['encrypt', 'decrypt'],
-	)
+  return crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode(info),
+    },
+    master,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  )
 }

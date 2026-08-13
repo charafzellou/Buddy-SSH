@@ -122,7 +122,7 @@ class FakeWebSocket {
   close(code?: number, reason?: string): void {
     this.readyState = FakeWebSocket.CLOSED
     this.closeCalls.push({ code, reason })
-		this.onclose?.({ code: code ?? 1000, reason: reason ?? '' } as CloseEvent)
+    this.onclose?.({ code: code ?? 1000, reason: reason ?? '' } as CloseEvent)
   }
 
   emitMessage(data: unknown): void {

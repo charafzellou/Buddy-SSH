@@ -1,21 +1,21 @@
 // @vitest-environment jsdom
 
-import { createApp } from 'vue'
 import { describe, expect, it } from 'vitest'
+import { createApp } from 'vue'
 import StatusBar from './StatusBar.vue'
 
 describe('StatusBar', () => {
-	it('renders connection state and latency', () => {
-		const root = document.createElement('div')
-		document.body.appendChild(root)
+  it('renders connection state and latency', () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
 
-		const app = createApp(StatusBar, { state: 'connected', latency: 32 })
-		app.mount(root)
+    const app = createApp(StatusBar, { state: 'connected', latency: 32 })
+    app.mount(root)
 
-		expect(root.textContent).toContain('Connected')
-		expect(root.textContent).toContain('32 ms')
+    expect(root.textContent).toContain('Connected')
+    expect(root.textContent).toContain('32 ms')
 
-		app.unmount()
-		root.remove()
-	})
+    app.unmount()
+    root.remove()
+  })
 })

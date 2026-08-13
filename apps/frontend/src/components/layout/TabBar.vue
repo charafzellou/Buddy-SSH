@@ -1,54 +1,54 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import TabItem from '@/components/tabs/TabItem.vue'
 import { useSessionStore } from '@/stores/useSessionStore'
-import { ref } from 'vue'
 
 const store = useSessionStore()
 const draggedId = ref<string | null>(null)
 
 function handleSelect(id: string): void {
-	store.setActive(id)
+  store.setActive(id)
 }
 
 function handlePin(id: string): void {
-	store.pinTab(id)
+  store.pinTab(id)
 }
 
 function handleClose(id: string): void {
-	store.closeTab(id)
+  store.closeTab(id)
 }
 
 function handleDragStart(id: string, event: DragEvent): void {
-	draggedId.value = id
-	event.dataTransfer?.setData('text/plain', id)
-	if (event.dataTransfer) {
-		event.dataTransfer.effectAllowed = 'move'
-	}
+  draggedId.value = id
+  event.dataTransfer?.setData('text/plain', id)
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+  }
 }
 
 function handleDragEnd(): void {
-	draggedId.value = null
+  draggedId.value = null
 }
 
 // Dropping tab A onto tab B moves A to B's current position (index-based
 // reorder), matching the drag affordance most tabbed UIs use.
 function handleDrop(targetId: string, event: DragEvent): void {
-	const sourceId = draggedId.value ?? event.dataTransfer?.getData('text/plain') ?? null
-	draggedId.value = null
-	if (!sourceId || sourceId === targetId) {
-		return
-	}
+  const sourceId = draggedId.value ?? event.dataTransfer?.getData('text/plain') ?? null
+  draggedId.value = null
+  if (!sourceId || sourceId === targetId) {
+    return
+  }
 
-	const ids = store.tabs.map((tab) => tab.id)
-	const fromIndex = ids.indexOf(sourceId)
-	const toIndex = ids.indexOf(targetId)
-	if (fromIndex === -1 || toIndex === -1) {
-		return
-	}
+  const ids = store.tabs.map((tab) => tab.id)
+  const fromIndex = ids.indexOf(sourceId)
+  const toIndex = ids.indexOf(targetId)
+  if (fromIndex === -1 || toIndex === -1) {
+    return
+  }
 
-	ids.splice(fromIndex, 1)
-	ids.splice(toIndex, 0, sourceId)
-	store.reorder(ids)
+  ids.splice(fromIndex, 1)
+  ids.splice(toIndex, 0, sourceId)
+  store.reorder(ids)
 }
 </script>
 

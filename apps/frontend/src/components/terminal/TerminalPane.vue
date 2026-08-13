@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { useResize, type UseResizeHandle } from '@/composables/useResize'
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { useTerminal, type TerminalTransport, type UseTerminalHandle } from '@/composables/useTerminal'
+import { type UseResizeHandle, useResize } from '@/composables/useResize'
+import {
+  type TerminalTransport,
+  type UseTerminalHandle,
+  useTerminal,
+} from '@/composables/useTerminal'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 
 const props = defineProps<{
-	transport?: TerminalTransport | null
-	active?: boolean
+  transport?: TerminalTransport | null
+  active?: boolean
 }>()
 
 const pane = ref<HTMLElement | null>(null)
@@ -19,80 +23,83 @@ let resizeHandle: UseResizeHandle | null = null
 const hasTransport = computed(() => props.transport != null)
 
 watch(
-	[() => pane.value, () => container.value, () => props.transport],
-	([paneElement, element, transport], [, , previousTransport]) => {
-		if (terminalHandle && (!paneElement || !element || !transport || transport !== previousTransport)) {
-			terminalHandle.dispose()
-			terminalHandle = null
-			resizeHandle?.dispose()
-			resizeHandle = null
-		}
+  [() => pane.value, () => container.value, () => props.transport],
+  ([paneElement, element, transport], [, , previousTransport]) => {
+    if (
+      terminalHandle &&
+      (!paneElement || !element || !transport || transport !== previousTransport)
+    ) {
+      terminalHandle.dispose()
+      terminalHandle = null
+      resizeHandle?.dispose()
+      resizeHandle = null
+    }
 
-		if (!paneElement || !element || !transport || terminalHandle) {
-			return
-		}
+    if (!paneElement || !element || !transport || terminalHandle) {
+      return
+    }
 
-		terminalHandle = useTerminal({
-			container: element,
-			transport,
-			settings: {
-				fontFamily: settings.fontFamily,
-				fontSize: settings.fontSize,
-				scrollback: settings.scrollback,
-			},
-		})
-		resizeHandle = useResize({
-			element: paneElement,
-			transport,
-			measure: () => {
-				const dimensions = terminalHandle?.bundle.addons.fit.proposeDimensions()
-				if (dimensions && terminalHandle) {
-					const { terminal, addons } = terminalHandle.bundle
-					if (dimensions.cols !== terminal.cols || dimensions.rows !== terminal.rows) {
-						addons.fit.fit()
-					}
+    terminalHandle = useTerminal({
+      container: element,
+      transport,
+      settings: {
+        fontFamily: settings.fontFamily,
+        fontSize: settings.fontSize,
+        scrollback: settings.scrollback,
+      },
+    })
+    resizeHandle = useResize({
+      element: paneElement,
+      transport,
+      measure: () => {
+        const dimensions = terminalHandle?.bundle.addons.fit.proposeDimensions()
+        if (dimensions && terminalHandle) {
+          const { terminal, addons } = terminalHandle.bundle
+          if (dimensions.cols !== terminal.cols || dimensions.rows !== terminal.rows) {
+            addons.fit.fit()
+          }
 
-					return {
-						cols: dimensions.cols,
-						rows: dimensions.rows,
-						pixelWidth: element.clientWidth,
-						pixelHeight: element.clientHeight,
-					}
-				}
+          return {
+            cols: dimensions.cols,
+            rows: dimensions.rows,
+            pixelWidth: element.clientWidth,
+            pixelHeight: element.clientHeight,
+          }
+        }
 
-				return {
-					cols: terminalHandle?.bundle.terminal.cols ?? 80,
-					rows: terminalHandle?.bundle.terminal.rows ?? 24,
-					pixelWidth: element.clientWidth,
-					pixelHeight: element.clientHeight,
-				}
-			},
-		})
-		element.focus()
-	},
-	{ immediate: true },
+        return {
+          cols: terminalHandle?.bundle.terminal.cols ?? 80,
+          rows: terminalHandle?.bundle.terminal.rows ?? 24,
+          pixelWidth: element.clientWidth,
+          pixelHeight: element.clientHeight,
+        }
+      },
+    })
+    element.focus()
+  },
+  { immediate: true },
 )
 
 // A pane kept mounted-but-hidden (v-show) for a background tab reports a
 // zero-size container to ResizeObserver, so re-fit and refocus explicitly
 // when it becomes the active tab again instead of relying on resize events.
 watch(
-	() => props.active,
-	(isActive) => {
-		if (!isActive || !terminalHandle) {
-			return
-		}
+  () => props.active,
+  (isActive) => {
+    if (!isActive || !terminalHandle) {
+      return
+    }
 
-		terminalHandle.bundle.addons?.fit?.fit()
-		container.value?.focus()
-	},
+    terminalHandle.bundle.addons?.fit?.fit()
+    container.value?.focus()
+  },
 )
 
 onUnmounted(() => {
-	terminalHandle?.dispose()
-	terminalHandle = null
-	resizeHandle?.dispose()
-	resizeHandle = null
+  terminalHandle?.dispose()
+  terminalHandle = null
+  resizeHandle?.dispose()
+  resizeHandle = null
 })
 </script>
 

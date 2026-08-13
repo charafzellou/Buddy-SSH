@@ -70,23 +70,23 @@ export class WebSocketTransport {
       socket.onmessage = (event) => {
         void this.handleMessage(event.data)
       }
-    socket.onclose = (event) => {
-      if (event.code !== 1000) {
-        // Surfaced (not swallowed) so an unexpected server-side close is
-        // visible; the server's close reason (e.g. a protocol/decode error)
-        // is otherwise discarded by the generic DISCONNECT status below.
-        console.warn('[transport] socket closed unexpectedly', {
-          code: event.code,
-          reason: event.reason,
+      socket.onclose = (event) => {
+        if (event.code !== 1000) {
+          // Surfaced (not swallowed) so an unexpected server-side close is
+          // visible; the server's close reason (e.g. a protocol/decode error)
+          // is otherwise discarded by the generic DISCONNECT status below.
+          console.warn('[transport] socket closed unexpectedly', {
+            code: event.code,
+            reason: event.reason,
+          })
+        }
+        this.onStatus?.({
+          v: 1,
+          type: 'DISCONNECT',
+          payload: {
+            reason: event.code === 1000 ? 'client_close' : 'error',
+          },
         })
-      }
-      this.onStatus?.({
-        v: 1,
-        type: 'DISCONNECT',
-        payload: {
-          reason: event.code === 1000 ? 'client_close' : 'error',
-        },
-      })
         this.socket = null
       }
     })

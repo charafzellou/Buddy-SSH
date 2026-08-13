@@ -1,15 +1,17 @@
 <script setup lang="ts">
+import type { BuddySshMessage, KbdInteractiveChallenge } from '@buddy-ssh/shared'
+import { computed, onUnmounted, ref } from 'vue'
 import AuthPrompt from '@/components/connect/AuthPrompt.vue'
 import HostKeyMismatchWarning from '@/components/connect/HostKeyMismatchWarning.vue'
 import HostKeyPrompt from '@/components/connect/HostKeyPrompt.vue'
-import QuickConnectDialog from '@/components/connect/QuickConnectDialog.vue'
 import type { QuickConnectAuthMethod } from '@/components/connect/QuickConnectDialog.vue'
-import StatusBar from '@/components/layout/StatusBar.vue'
+import QuickConnectDialog from '@/components/connect/QuickConnectDialog.vue'
 import AppShell from '@/components/layout/AppShell.vue'
+import StatusBar from '@/components/layout/StatusBar.vue'
 import TabBar from '@/components/layout/TabBar.vue'
-import TerminalPane from '@/components/terminal/TerminalPane.vue'
 import ProfileEditor from '@/components/profiles/ProfileEditor.vue'
 import ProfileList from '@/components/profiles/ProfileList.vue'
+import TerminalPane from '@/components/terminal/TerminalPane.vue'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import type { PublicKeySubmission } from '@/services/authSubmission'
 import { sendPublicKeyAuth } from '@/services/authSubmission'
@@ -18,8 +20,6 @@ import { WebSocketTransport } from '@/services/transport'
 import { useKnownHostsStore } from '@/stores/useKnownHostsStore'
 import { useProfileStore } from '@/stores/useProfileStore'
 import { useSessionStore } from '@/stores/useSessionStore'
-import type { BuddySshMessage, KbdInteractiveChallenge } from '@buddy-ssh/shared'
-import { computed, onUnmounted, ref } from 'vue'
 
 type StatusMessage = Extract<
   BuddySshMessage,
@@ -205,11 +205,18 @@ async function lookupKnownHost(hostKey: string): ReturnType<typeof knownHostsSto
   }
 }
 
-async function openSession(payload: QuickConnectPayload, transport: WebSocketTransport): Promise<void> {
+async function openSession(
+  payload: QuickConnectPayload,
+  transport: WebSocketTransport,
+): Promise<void> {
   try {
     const hostKey = `${payload.host}:${payload.port}`
     const pinned = await lookupKnownHost(hostKey)
-    connectContexts.set(payload.tabId, { host: hostKey, port: payload.port, wasPinned: pinned !== null })
+    connectContexts.set(payload.tabId, {
+      host: hostKey,
+      port: payload.port,
+      wasPinned: pinned !== null,
+    })
 
     await transport.connect()
     transport.send({
@@ -401,7 +408,11 @@ async function handleHostKeyMismatch(tabId: string, message: string): Promise<vo
   }
 }
 
-function handleStatusMessage(tabId: string, transport: WebSocketTransport, message: StatusMessage): void {
+function handleStatusMessage(
+  tabId: string,
+  transport: WebSocketTransport,
+  message: StatusMessage,
+): void {
   sessionStore.touchTab(tabId)
 
   switch (message.type) {
@@ -436,7 +447,11 @@ function handleStatusMessage(tabId: string, transport: WebSocketTransport, messa
       }
 
       if (message.payload.challenge) {
-        authPromptState.value = { tabId, mode: 'kbdInteractive', challenge: message.payload.challenge }
+        authPromptState.value = {
+          tabId,
+          mode: 'kbdInteractive',
+          challenge: message.payload.challenge,
+        }
       }
 
       if (message.payload.state !== 'connected') {
@@ -514,7 +529,13 @@ function transportErrorMessage(error: Error | ErrorMessage | unknown): string {
 }
 
 function isProtocolError(error: unknown): error is ErrorMessage {
-  return typeof error === 'object' && error !== null && 'type' in error && error.type === 'ERROR' && 'payload' in error
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'type' in error &&
+    error.type === 'ERROR' &&
+    'payload' in error
+  )
 }
 
 function createMessageID(): string {

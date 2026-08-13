@@ -1,22 +1,22 @@
 <script setup lang="ts">
 const props = defineProps<{
-	open: boolean
-	host: string
-	algorithm: string
-	fingerprint: string
+  open: boolean
+  host: string
+  algorithm: string
+  fingerprint: string
 }>()
 
 const emit = defineEmits<{
-	(event: 'accept'): void
-	(event: 'reject'): void
+  (event: 'accept'): void
+  (event: 'reject'): void
 }>()
 
 function accept(): void {
-	emit('accept')
+  emit('accept')
 }
 
 function reject(): void {
-	emit('reject')
+  emit('reject')
 }
 </script>
 

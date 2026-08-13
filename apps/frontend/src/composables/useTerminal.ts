@@ -1,7 +1,7 @@
+import type { BuddySshMessage } from '@buddy-ssh/shared'
 import { sanitizeTerminalOutput } from '@/terminal/sanitize'
 import { createTerminalTheme } from '@/terminal/theme'
-import { type XtermBundle, type XtermFactoryOptions, createXterm } from '@/terminal/xtermFactory'
-import type { BuddySshMessage } from '@buddy-ssh/shared'
+import { createXterm, type XtermBundle, type XtermFactoryOptions } from '@/terminal/xtermFactory'
 
 type DataMessage = Extract<BuddySshMessage, { type: 'DATA' | 'STDERR' }>
 

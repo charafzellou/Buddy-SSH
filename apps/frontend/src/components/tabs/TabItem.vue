@@ -3,48 +3,48 @@ import type { StatusPayload } from '@buddy-ssh/shared'
 import { computed } from 'vue'
 
 const props = defineProps<{
-	id: string
-	label: string
-	state: StatusPayload['state']
-	active: boolean
-	pinned: boolean
-	color?: string
+  id: string
+  label: string
+  state: StatusPayload['state']
+  active: boolean
+  pinned: boolean
+  color?: string
 }>()
 
 const emit = defineEmits<{
-	(event: 'select', id: string): void
-	(event: 'pin', id: string): void
-	(event: 'close', id: string): void
+  (event: 'select', id: string): void
+  (event: 'pin', id: string): void
+  (event: 'close', id: string): void
 }>()
 
 const isDisconnected = computed(() => props.state === 'disconnected' || props.state === 'error')
 
 const statusDotClass = computed(() => {
-	switch (props.state) {
-		case 'connected':
-			return 'bg-emerald-400'
-		case 'connecting':
-		case 'reconnecting':
-			return 'bg-amber-400 animate-pulse'
-		case 'error':
-			return 'bg-rose-500'
-		default:
-			return 'bg-slate-400'
-	}
+  switch (props.state) {
+    case 'connected':
+      return 'bg-emerald-400'
+    case 'connecting':
+    case 'reconnecting':
+      return 'bg-amber-400 animate-pulse'
+    case 'error':
+      return 'bg-rose-500'
+    default:
+      return 'bg-slate-400'
+  }
 })
 
 function select(): void {
-	emit('select', props.id)
+  emit('select', props.id)
 }
 
 function togglePin(event: MouseEvent): void {
-	event.stopPropagation()
-	emit('pin', props.id)
+  event.stopPropagation()
+  emit('pin', props.id)
 }
 
 function close(event: MouseEvent): void {
-	event.stopPropagation()
-	emit('close', props.id)
+  event.stopPropagation()
+  emit('close', props.id)
 }
 </script>
 

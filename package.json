@@ -3,7 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/frontend", "packages/shared"],
+  "workspaces": [
+    "apps/frontend",
+    "packages/shared"
+  ],
   "scripts": {
     "dev": "concurrently -n backend,frontend -c blue,green \"cd apps/backend && go run ./cmd/buddy-ssh\" \"bun run --filter @buddy-ssh/frontend dev\"",
     "build": "bun run --filter @buddy-ssh/shared build && bun run --filter @buddy-ssh/frontend build && cd apps/backend && go build -o ../../bin/buddy-ssh ./cmd/buddy-ssh",
@@ -20,9 +23,13 @@
     "docker-down": "docker compose down"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.6",
+    "@biomejs/biome": "2.5.8",
     "ajv": "^8.20.0",
     "concurrently": "^10.0.4",
     "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "fast-uri": "3.1.5",
+    "nanoid": "3.3.18"
   }
 }
