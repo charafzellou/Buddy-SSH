@@ -2,7 +2,7 @@
 
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createApp, nextTick } from 'vue'
+import { createApp, defineComponent, h, nextTick, ref } from 'vue'
 import TerminalPane from './TerminalPane.vue'
 
 const terminalMocks = vi.hoisted(() => ({
@@ -74,5 +74,35 @@ describe('TerminalPane', () => {
 		app.unmount()
 		expect(terminalMocks.dispose).toHaveBeenCalledTimes(1)
 		expect(terminalMocks.resizeDispose).toHaveBeenCalledTimes(1)
+	})
+
+	it('re-fits and refocuses when a mounted-but-hidden pane becomes active', async () => {
+		const fit = vi.fn()
+		terminalMocks.useTerminal.mockReset().mockReturnValue({
+			bundle: { addons: { fit: { fit } } },
+			dispose: terminalMocks.dispose,
+		})
+
+		const transport = { send: vi.fn() }
+		const active = ref(false)
+		const Host = defineComponent({
+			setup() {
+				return () => h(TerminalPane, { transport, active: active.value })
+			},
+		})
+
+		const app = createApp(Host)
+		app.use(createPinia())
+		app.mount(root)
+		await nextTick()
+
+		expect(fit).not.toHaveBeenCalled()
+
+		active.value = true
+		await nextTick()
+
+		expect(fit).toHaveBeenCalledTimes(1)
+
+		app.unmount()
 	})
 })

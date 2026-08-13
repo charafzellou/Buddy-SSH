@@ -1,4 +1,5 @@
 import type { BuddySshMessage } from '@buddy-ssh/shared'
+import { decode as decodeMessagePackRaw } from '@msgpack/msgpack'
 import { describe, expect, it } from 'vitest'
 import { decodeProtocolMessage, encodeProtocolMessage } from './protocol'
 
@@ -11,6 +12,23 @@ describe('protocol service', () => {
       expect(decoded).toEqual(message)
     }
   })
+
+  it.each(['DATA', 'STDERR'] as const)(
+    // Regression test for M1.11.1: the frontend's byteArraySchema represents
+    // bytes as number[], but @msgpack/msgpack only emits the msgpack "bin"
+    // format (matching Go's []byte decode) for Uint8Array values. Encoding a
+    // plain number[] instead produced a msgpack "array", which the backend's
+    // vmihailenco/msgpack decoder rejected with a policy-violation close as
+    // soon as the first keystroke was typed.
+    'encodes %s bytes using msgpack bin format, not array',
+    (type) => {
+      const message = { v: 1, id: 'req-1', type, payload: { data: [1, 2, 3] } } as BuddySshMessage
+      const encoded = encodeProtocolMessage(message, 'msgpack') as Uint8Array
+
+      const raw = decodeMessagePackRaw(encoded) as { payload: { data: unknown } }
+      expect(raw.payload.data).toBeInstanceOf(Uint8Array)
+    },
+  )
 
   it.each(['msgpack', 'json'] as const)('throws on invalid payload with %s', (encoding) => {
     const malformed: BuddySshMessage = {
@@ -83,6 +101,19 @@ function protocolFixtures(): BuddySshMessage[] {
     { v: 1, id: 'req-1', type: 'PONG', payload: { timestamp: 12345, serverTime: 12346 } },
     { v: 1, id: 'req-1', type: 'KEEPALIVE', payload: {} },
     { v: 1, id: 'req-1', type: 'STATUS', payload: { state: 'connected', message: 'ready' } },
+    {
+      v: 1,
+      id: 'req-1',
+      type: 'STATUS',
+      payload: {
+        state: 'connecting',
+        challenge: {
+          name: 'Two-factor',
+          instructions: 'Enter your verification code',
+          prompts: [{ text: 'Verification code:', echo: true }],
+        },
+      },
+    },
     { v: 1, id: 'req-1', type: 'ERROR', payload: { code: 'INTERNAL', message: 'boom' } },
     { v: 1, id: 'req-1', type: 'DISCONNECT', payload: { reason: 'client_close' } },
   ]

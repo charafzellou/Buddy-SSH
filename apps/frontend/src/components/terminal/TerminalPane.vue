@@ -6,6 +6,7 @@ import { useSettingsStore } from '@/stores/useSettingsStore'
 
 const props = defineProps<{
 	transport?: TerminalTransport | null
+	active?: boolean
 }>()
 
 const pane = ref<HTMLElement | null>(null)
@@ -70,6 +71,21 @@ watch(
 		element.focus()
 	},
 	{ immediate: true },
+)
+
+// A pane kept mounted-but-hidden (v-show) for a background tab reports a
+// zero-size container to ResizeObserver, so re-fit and refocus explicitly
+// when it becomes the active tab again instead of relying on resize events.
+watch(
+	() => props.active,
+	(isActive) => {
+		if (!isActive || !terminalHandle) {
+			return
+		}
+
+		terminalHandle.bundle.addons?.fit?.fit()
+		container.value?.focus()
+	},
 )
 
 onUnmounted(() => {

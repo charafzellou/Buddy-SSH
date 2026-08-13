@@ -214,6 +214,371 @@ func TestNewHandlerRelaysWebsocketSessionToSSH(t *testing.T) {
 	}
 }
 
+func TestNewHandlerHostKeyPinning(t *testing.T) {
+	t.Parallel()
+
+	sshServer, err := newIntegrationSSHServer("top-secret")
+	if err != nil {
+		t.Fatalf("newIntegrationSSHServer() error = %v", err)
+	}
+	defer sshServer.Close()
+
+	handler, err := NewHandler(config.Config{
+		Token:          "dev-token",
+		AllowedOrigins: []string{"http://localhost:5173"},
+		ReadLimit:      1 << 20,
+		Keepalive:      250 * time.Millisecond,
+		IdleTimeout:    2 * time.Second,
+	}, nil, fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><html><body>Buddy-SSH</body></html>")},
+	})
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+
+	connectWithHostKey := func(t *testing.T, hostKey protocol.InitPayloadHostKey) (protocol.ConnectedMessage, error) {
+		t.Helper()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		connection, _, err := ws.Dial(ctx, "ws"+httpServer.URL[len("http"):]+"/ws", &ws.DialOptions{
+			HTTPHeader: http.Header{
+				"Authorization": []string{"Bearer dev-token"},
+				"Origin":        []string{"http://localhost:5173"},
+			},
+			Subprotocols: []string{buddywebsocket.SubprotocolMessagePack},
+		})
+		if err != nil {
+			t.Fatalf("ws.Dial() error = %v", err)
+		}
+		defer connection.Close(ws.StatusNormalClosure, "test complete")
+
+		requestID := "req-1"
+		password := "top-secret"
+		if err := writeProtocolMessage(ctx, connection, protocol.InitMessage{
+			V:    1,
+			ID:   &requestID,
+			Type: "INIT",
+			Payload: protocol.InitPayload{
+				AuthMethod: "password",
+				HostKey:    hostKey,
+				Target: protocol.InitPayloadTarget{
+					Host:     sshServer.Host(),
+					Port:     sshServer.Port(),
+					Username: "ops",
+				},
+				PTY: protocol.InitPayloadPTY{Term: "xterm-256color", Cols: 80, Rows: 24},
+			},
+		}); err != nil {
+			return protocol.ConnectedMessage{}, fmt.Errorf("write INIT: %w", err)
+		}
+
+		if err := writeProtocolMessage(ctx, connection, protocol.AuthMessage{
+			V: 1, ID: &requestID, Type: "AUTH",
+			Payload: protocol.AuthPayload{Password: &password},
+		}); err != nil {
+			return protocol.ConnectedMessage{}, fmt.Errorf("write AUTH: %w", err)
+		}
+
+		if err := writeProtocolMessage(ctx, connection, protocol.ConnectMessage{
+			V: 1, ID: &requestID, Type: "CONNECT",
+		}); err != nil {
+			return protocol.ConnectedMessage{}, fmt.Errorf("write CONNECT: %w", err)
+		}
+
+		message, err := readUntilMessage(ctx, connection, func(message any) bool {
+			switch message.(type) {
+			case protocol.ConnectedMessage, protocol.ErrorMessage:
+				return true
+			default:
+				return false
+			}
+		})
+		if err != nil {
+			return protocol.ConnectedMessage{}, fmt.Errorf("read CONNECTED/ERROR: %w", err)
+		}
+
+		if errMessage, ok := message.(protocol.ErrorMessage); ok {
+			return protocol.ConnectedMessage{}, fmt.Errorf("%s: %s", errMessage.Payload.Code, errMessage.Payload.Message)
+		}
+
+		return message.(protocol.ConnectedMessage), nil
+	}
+
+	// First connect (first-use) discovers and accepts the server's real
+	// host key; capture it to pin against on the next connections.
+	firstUse, err := connectWithHostKey(t, protocol.InitPayloadHostKey{Mode: "first-use"})
+	if err != nil {
+		t.Fatalf("first-use connect failed: %v", err)
+	}
+	realFingerprint := firstUse.Payload.HostKey.Fingerprint
+	realAlgorithm := firstUse.Payload.HostKey.Algorithm
+	if realFingerprint == "" {
+		t.Fatal("expected first-use CONNECTED to report a host key fingerprint")
+	}
+
+	// Pinned match: same fingerprint → CONNECTED.
+	if _, err := connectWithHostKey(t, protocol.InitPayloadHostKey{
+		Mode:        "pinned",
+		Fingerprint: &realFingerprint,
+		Algorithm:   &realAlgorithm,
+	}); err != nil {
+		t.Fatalf("pinned match connect failed: %v", err)
+	}
+
+	// Pinned mismatch: wrong fingerprint → ERROR{HOST_KEY_MISMATCH}, no
+	// silent trust.
+	wrongFingerprint := "SHA256:0000000000000000000000000000000000000000A"
+	_, err = connectWithHostKey(t, protocol.InitPayloadHostKey{
+		Mode:        "pinned",
+		Fingerprint: &wrongFingerprint,
+		Algorithm:   &realAlgorithm,
+	})
+	if err == nil {
+		t.Fatal("expected pinned mismatch to fail")
+	}
+	if !strings.Contains(err.Error(), "HOST_KEY_MISMATCH") {
+		t.Fatalf("error = %v, want HOST_KEY_MISMATCH", err)
+	}
+}
+
+func TestNewHandlerRelaysKeyboardInteractiveChallenge(t *testing.T) {
+	t.Parallel()
+
+	const correctCode = "123456"
+	sshServer, err := newIntegrationSSHServerKeyboardInteractive(correctCode)
+	if err != nil {
+		t.Fatalf("newIntegrationSSHServerKeyboardInteractive() error = %v", err)
+	}
+	defer sshServer.Close()
+
+	handler, err := NewHandler(config.Config{
+		Token:          "dev-token",
+		AllowedOrigins: []string{"http://localhost:5173"},
+		ReadLimit:      1 << 20,
+		Keepalive:      250 * time.Millisecond,
+		IdleTimeout:    2 * time.Second,
+	}, nil, fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><html><body>Buddy-SSH</body></html>")},
+	})
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	connection, _, err := ws.Dial(ctx, "ws"+httpServer.URL[len("http"):]+"/ws", &ws.DialOptions{
+		HTTPHeader: http.Header{
+			"Authorization": []string{"Bearer dev-token"},
+			"Origin":        []string{"http://localhost:5173"},
+		},
+		Subprotocols: []string{buddywebsocket.SubprotocolMessagePack},
+	})
+	if err != nil {
+		t.Fatalf("ws.Dial() error = %v", err)
+	}
+	defer connection.Close(ws.StatusNormalClosure, "test complete")
+
+	requestID := "req-1"
+	if err := writeProtocolMessage(ctx, connection, protocol.InitMessage{
+		V:    1,
+		ID:   &requestID,
+		Type: "INIT",
+		Payload: protocol.InitPayload{
+			AuthMethod: "keyboard-interactive",
+			HostKey:    protocol.InitPayloadHostKey{Mode: "first-use"},
+			Target: protocol.InitPayloadTarget{
+				Host:     sshServer.Host(),
+				Port:     sshServer.Port(),
+				Username: "ops",
+			},
+			PTY: protocol.InitPayloadPTY{
+				Term: "xterm-256color",
+				Cols: 80,
+				Rows: 24,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("write INIT: %v", err)
+	}
+
+	// The initial AUTH for keyboard-interactive carries no payload — the
+	// real challenge only arrives once CONNECT triggers the dial.
+	if err := writeProtocolMessage(ctx, connection, protocol.AuthMessage{
+		V:    1,
+		ID:   &requestID,
+		Type: "AUTH",
+	}); err != nil {
+		t.Fatalf("write initial AUTH: %v", err)
+	}
+
+	if err := writeProtocolMessage(ctx, connection, protocol.ConnectMessage{
+		V:    1,
+		ID:   &requestID,
+		Type: "CONNECT",
+	}); err != nil {
+		t.Fatalf("write CONNECT: %v", err)
+	}
+
+	challengeMessage, err := readUntilMessage(ctx, connection, func(message any) bool {
+		status, ok := message.(protocol.StatusMessage)
+		return ok && status.Payload.Challenge != nil
+	})
+	if err != nil {
+		t.Fatalf("read challenge STATUS: %v", err)
+	}
+
+	challenge := challengeMessage.(protocol.StatusMessage).Payload.Challenge
+	if len(challenge.Prompts) != 1 {
+		t.Fatalf("len(challenge.Prompts) = %d, want 1", len(challenge.Prompts))
+	}
+	if challenge.Prompts[0].Text != "Verification code:" {
+		t.Fatalf("challenge.Prompts[0].Text = %q, want %q", challenge.Prompts[0].Text, "Verification code:")
+	}
+	if !challenge.Prompts[0].Echo {
+		t.Fatal("expected the verification-code prompt to echo")
+	}
+
+	if err := writeProtocolMessage(ctx, connection, protocol.AuthMessage{
+		V:    1,
+		ID:   &requestID,
+		Type: "AUTH",
+		Payload: protocol.AuthPayload{
+			KbdInteractive: &protocol.AuthPayloadKbdInteractive{
+				ChallengeID: "challenge-1",
+				Responses:   []string{correctCode},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("write challenge-response AUTH: %v", err)
+	}
+
+	connectedMessage, err := readUntilMessage(ctx, connection, func(message any) bool {
+		_, ok := message.(protocol.ConnectedMessage)
+		return ok
+	})
+	if err != nil {
+		t.Fatalf("read CONNECTED: %v", err)
+	}
+
+	connected := connectedMessage.(protocol.ConnectedMessage)
+	if connected.Payload.SessionID == "" {
+		t.Fatal("expected CONNECTED session id to be populated")
+	}
+}
+
+func TestNewHandlerRejectsWrongKeyboardInteractiveResponse(t *testing.T) {
+	t.Parallel()
+
+	sshServer, err := newIntegrationSSHServerKeyboardInteractive("123456")
+	if err != nil {
+		t.Fatalf("newIntegrationSSHServerKeyboardInteractive() error = %v", err)
+	}
+	defer sshServer.Close()
+
+	handler, err := NewHandler(config.Config{
+		Token:          "dev-token",
+		AllowedOrigins: []string{"http://localhost:5173"},
+		ReadLimit:      1 << 20,
+		Keepalive:      250 * time.Millisecond,
+		IdleTimeout:    2 * time.Second,
+	}, nil, fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><html><body>Buddy-SSH</body></html>")},
+	})
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	connection, _, err := ws.Dial(ctx, "ws"+httpServer.URL[len("http"):]+"/ws", &ws.DialOptions{
+		HTTPHeader: http.Header{
+			"Authorization": []string{"Bearer dev-token"},
+			"Origin":        []string{"http://localhost:5173"},
+		},
+		Subprotocols: []string{buddywebsocket.SubprotocolMessagePack},
+	})
+	if err != nil {
+		t.Fatalf("ws.Dial() error = %v", err)
+	}
+	defer connection.Close(ws.StatusNormalClosure, "test complete")
+
+	requestID := "req-1"
+	if err := writeProtocolMessage(ctx, connection, protocol.InitMessage{
+		V:    1,
+		ID:   &requestID,
+		Type: "INIT",
+		Payload: protocol.InitPayload{
+			AuthMethod: "keyboard-interactive",
+			HostKey:    protocol.InitPayloadHostKey{Mode: "first-use"},
+			Target: protocol.InitPayloadTarget{
+				Host:     sshServer.Host(),
+				Port:     sshServer.Port(),
+				Username: "ops",
+			},
+			PTY: protocol.InitPayloadPTY{Term: "xterm-256color", Cols: 80, Rows: 24},
+		},
+	}); err != nil {
+		t.Fatalf("write INIT: %v", err)
+	}
+
+	if err := writeProtocolMessage(ctx, connection, protocol.AuthMessage{
+		V: 1, ID: &requestID, Type: "AUTH",
+	}); err != nil {
+		t.Fatalf("write initial AUTH: %v", err)
+	}
+
+	if err := writeProtocolMessage(ctx, connection, protocol.ConnectMessage{
+		V: 1, ID: &requestID, Type: "CONNECT",
+	}); err != nil {
+		t.Fatalf("write CONNECT: %v", err)
+	}
+
+	if _, err := readUntilMessage(ctx, connection, func(message any) bool {
+		status, ok := message.(protocol.StatusMessage)
+		return ok && status.Payload.Challenge != nil
+	}); err != nil {
+		t.Fatalf("read challenge STATUS: %v", err)
+	}
+
+	if err := writeProtocolMessage(ctx, connection, protocol.AuthMessage{
+		V: 1, ID: &requestID, Type: "AUTH",
+		Payload: protocol.AuthPayload{
+			KbdInteractive: &protocol.AuthPayloadKbdInteractive{
+				ChallengeID: "challenge-1",
+				Responses:   []string{"wrong-code"},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("write challenge-response AUTH: %v", err)
+	}
+
+	errorMessage, err := readUntilMessage(ctx, connection, func(message any) bool {
+		_, ok := message.(protocol.ErrorMessage)
+		return ok
+	})
+	if err != nil {
+		t.Fatalf("read ERROR: %v", err)
+	}
+
+	errMsg := errorMessage.(protocol.ErrorMessage)
+	if errMsg.Payload.Code != "AUTH_FAILED" {
+		t.Fatalf("error code = %q, want AUTH_FAILED", errMsg.Payload.Code)
+	}
+}
+
 func TestNewHandlerRedactsPasswordFromLogs(t *testing.T) {
 	t.Parallel()
 
@@ -415,6 +780,53 @@ func newIntegrationSSHServer(password string) (*integrationSSHServer, error) {
 	server := &integrationSSHServer{
 		listener:      listener,
 		password:      password,
+		windowChanges: make(chan integrationWindowChange, 1),
+		closeFunc:     cancel,
+	}
+
+	go server.serve(ctx, serverConfig)
+
+	return server, nil
+}
+
+func newIntegrationSSHServerKeyboardInteractive(correctCode string) (*integrationSSHServer, error) {
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+
+	signer, err := gossh.NewSignerFromKey(privateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	serverConfig := &gossh.ServerConfig{
+		KeyboardInteractiveCallback: func(metadata gossh.ConnMetadata, client gossh.KeyboardInteractiveChallenge) (*gossh.Permissions, error) {
+			if metadata.User() != "ops" {
+				return nil, fmt.Errorf("invalid user")
+			}
+
+			answers, err := client("Two-factor", "Enter your verification code", []string{"Verification code:"}, []bool{true})
+			if err != nil {
+				return nil, err
+			}
+			if len(answers) != 1 || answers[0] != correctCode {
+				return nil, fmt.Errorf("invalid verification code")
+			}
+
+			return nil, nil
+		},
+	}
+	serverConfig.AddHostKey(signer)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	server := &integrationSSHServer{
+		listener:      listener,
 		windowChanges: make(chan integrationWindowChange, 1),
 		closeFunc:     cancel,
 	}

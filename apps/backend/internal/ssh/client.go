@@ -19,6 +19,11 @@ type AuthMethod = gossh.AuthMethod
 // HostKeyCallback aliases the upstream SSH host-key verification callback.
 type HostKeyCallback = gossh.HostKeyCallback
 
+// KeyboardInteractiveChallenge aliases the upstream keyboard-interactive
+// challenge callback: it is invoked once per challenge round the SSH server
+// issues, and must return one answer per question.
+type KeyboardInteractiveChallenge = gossh.KeyboardInteractiveChallenge
+
 // AuthSelection describes the concrete auth method chosen for a connection.
 type AuthSelection struct {
 	Name   string
@@ -44,8 +49,10 @@ var preferredMACs = []string{
 }
 
 // BuildClientConfig constructs the SSH client configuration for one session.
-func BuildClientConfig(init protocol.InitMessage, auth protocol.AuthMessage, hostKeyCallback HostKeyCallback) (*ClientConfig, error) {
-	selection, err := SelectAuthMethod(init.Payload.AuthMethod, auth.Payload)
+// kbdChallenge is only consulted when init.Payload.AuthMethod is
+// "keyboard-interactive"; pass nil for the other auth methods.
+func BuildClientConfig(init protocol.InitMessage, auth protocol.AuthMessage, hostKeyCallback HostKeyCallback, kbdChallenge KeyboardInteractiveChallenge) (*ClientConfig, error) {
+	selection, err := SelectAuthMethod(init.Payload.AuthMethod, auth.Payload, kbdChallenge)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +77,9 @@ func BuildClientConfig(init protocol.InitMessage, auth protocol.AuthMessage, hos
 }
 
 // SelectAuthMethod chooses the SSH auth method that matches the INIT/AUTH pair.
-func SelectAuthMethod(authMethod string, payload protocol.AuthPayload) (AuthSelection, error) {
+// kbdChallenge is only consulted for "keyboard-interactive"; pass nil for
+// the other auth methods.
+func SelectAuthMethod(authMethod string, payload protocol.AuthPayload, kbdChallenge KeyboardInteractiveChallenge) (AuthSelection, error) {
 	switch authMethod {
 	case "password":
 		if payload.Password == nil || *payload.Password == "" {
@@ -82,9 +91,28 @@ func SelectAuthMethod(authMethod string, payload protocol.AuthPayload) (AuthSele
 			Method: gossh.Password(*payload.Password),
 		}, nil
 	case "publickey":
-		return AuthSelection{}, fmt.Errorf("publickey auth is not implemented yet")
+		if payload.Publickey == nil || payload.Publickey.Key == "" {
+			return AuthSelection{}, fmt.Errorf("publickey auth requires payload.publickey.key")
+		}
+
+		signer, err := parsePrivateKeySigner(payload.Publickey.Key, payload.Publickey.Passphrase)
+		if err != nil {
+			return AuthSelection{}, fmt.Errorf("parse private key: %w", err)
+		}
+
+		return AuthSelection{
+			Name:   authMethod,
+			Method: gossh.PublicKeys(signer),
+		}, nil
 	case "keyboard-interactive":
-		return AuthSelection{}, fmt.Errorf("keyboard-interactive auth is not implemented yet")
+		if kbdChallenge == nil {
+			return AuthSelection{}, fmt.Errorf("keyboard-interactive auth requires a challenge callback")
+		}
+
+		return AuthSelection{
+			Name:   authMethod,
+			Method: gossh.KeyboardInteractive(kbdChallenge),
+		}, nil
 	default:
 		return AuthSelection{}, fmt.Errorf("unsupported auth method %q", authMethod)
 	}
@@ -94,6 +122,16 @@ func SelectAuthMethod(authMethod string, payload protocol.AuthPayload) (AuthSele
 // implementation slice.
 func SupportedAuthMethods() []string {
 	return []string{"password", "publickey", "keyboard-interactive"}
+}
+
+// parsePrivateKeySigner parses an OpenSSH or PEM formatted private key,
+// decrypting it with passphrase when the key is encrypted.
+func parsePrivateKeySigner(key string, passphrase *string) (gossh.Signer, error) {
+	if passphrase != nil && *passphrase != "" {
+		return gossh.ParsePrivateKeyWithPassphrase([]byte(key), []byte(*passphrase))
+	}
+
+	return gossh.ParsePrivateKey([]byte(key))
 }
 
 func cloneStrings(values []string) []string {

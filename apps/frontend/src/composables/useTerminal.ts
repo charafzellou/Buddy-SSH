@@ -53,8 +53,11 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalHandle {
           data: Array.from(encoder.encode(data)),
         },
       })
-    } catch {
-      // Ignore keystrokes emitted after the transport has already closed.
+    } catch (error) {
+      // Surfaced (not swallowed) so a transport failure during typing is
+      // visible instead of silently dropping keystrokes; the transport
+      // itself already has a closed/error state after this point.
+      console.warn('[useTerminal] failed to send keystroke data', error)
     }
   })
 

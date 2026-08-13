@@ -82,3 +82,47 @@ func TestMarshalUnmarshalInitMessage(t *testing.T) {
 		t.Fatalf("decoded fingerprint = %v, want %q", decoded.Payload.HostKey.Fingerprint, fingerprint)
 	}
 }
+
+func TestMarshalUnmarshalStatusMessageWithChallenge(t *testing.T) {
+	t.Parallel()
+
+	name := "Two-factor"
+	instructions := "Enter your verification code"
+	message := StatusMessage{
+		V:    1,
+		Type: "STATUS",
+		Payload: StatusPayload{
+			State: "connecting",
+			Challenge: &StatusPayloadChallenge{
+				Name:         &name,
+				Instructions: &instructions,
+				Prompts: []StatusPayloadChallengePromptsItem{
+					{Text: "Verification code:", Echo: true},
+				},
+			},
+		},
+	}
+
+	encoded, err := Marshal(message)
+	if err != nil {
+		t.Fatalf("marshal status message: %v", err)
+	}
+
+	var decoded StatusMessage
+	if err := Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unmarshal status message: %v", err)
+	}
+
+	if decoded.Payload.Challenge == nil {
+		t.Fatal("expected decoded challenge to be populated")
+	}
+	if decoded.Payload.Challenge.Name == nil || *decoded.Payload.Challenge.Name != name {
+		t.Fatalf("decoded challenge name = %v, want %q", decoded.Payload.Challenge.Name, name)
+	}
+	if len(decoded.Payload.Challenge.Prompts) != 1 {
+		t.Fatalf("len(decoded.Payload.Challenge.Prompts) = %d, want 1", len(decoded.Payload.Challenge.Prompts))
+	}
+	if decoded.Payload.Challenge.Prompts[0] != message.Payload.Challenge.Prompts[0] {
+		t.Fatalf("decoded prompt = %#v, want %#v", decoded.Payload.Challenge.Prompts[0], message.Payload.Challenge.Prompts[0])
+	}
+}

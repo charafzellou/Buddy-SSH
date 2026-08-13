@@ -81,6 +81,13 @@ func (conn *Conn) Advance(header protocol.Header) TransitionResult {
 		switch header.Type {
 		case "DATA", "RESIZE", "PING":
 			// Remain in CONNECTED for steady-state client traffic.
+		case "AUTH":
+			// Only valid mid-flight for keyboard-interactive's iterative
+			// challenge/response exchange: the state machine reaches
+			// CONNECTED as soon as CONNECT is *received*, before the
+			// asynchronous SSH dial (and its challenge round-trips)
+			// actually completes. session_runtime.go rejects an AUTH here
+			// if no challenge is actually pending.
 		case "DISCONNECT":
 			conn.state = StateDisconnected
 			return TransitionResult{State: conn.state, Close: true}

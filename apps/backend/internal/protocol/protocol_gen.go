@@ -161,9 +161,21 @@ type KeepaliveMessage struct {
 	Payload KeepalivePayload `json:"payload" msgpack:"payload"`
 }
 
+type StatusPayloadChallengePromptsItem struct {
+	Echo bool   `json:"echo" msgpack:"echo"`
+	Text string `json:"text" msgpack:"text"`
+}
+
+type StatusPayloadChallenge struct {
+	Instructions *string                             `json:"instructions,omitempty" msgpack:"instructions,omitempty"`
+	Name         *string                             `json:"name,omitempty" msgpack:"name,omitempty"`
+	Prompts      []StatusPayloadChallengePromptsItem `json:"prompts" msgpack:"prompts"`
+}
+
 type StatusPayload struct {
-	Message *string `json:"message,omitempty" msgpack:"message,omitempty"`
-	State   string  `json:"state" msgpack:"state"`
+	Challenge *StatusPayloadChallenge `json:"challenge,omitempty" msgpack:"challenge,omitempty"`
+	Message   *string                 `json:"message,omitempty" msgpack:"message,omitempty"`
+	State     string                  `json:"state" msgpack:"state"`
 }
 
 type StatusMessage struct {

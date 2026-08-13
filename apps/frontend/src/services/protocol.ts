@@ -12,10 +12,27 @@ export function encodeProtocolMessage(
   const parsed = messageUnionSchema.parse(message)
 
   if (encoding === 'msgpack') {
-    return encodeMessagePack(parsed)
+    return encodeMessagePack(toWireBinaryPayload(parsed))
   }
 
   return JSON.stringify(parsed)
+}
+
+// toWireBinaryPayload converts DATA/STDERR byte arrays to Uint8Array so
+// @msgpack/msgpack encodes them as msgpack "bin" (matching the Go backend's
+// []byte decode), instead of a msgpack "array" of integers.
+function toWireBinaryPayload(message: BuddySshMessage): unknown {
+  if (message.type !== 'DATA' && message.type !== 'STDERR') {
+    return message
+  }
+
+  return {
+    ...message,
+    payload: {
+      ...message.payload,
+      data: Uint8Array.from(message.payload.data),
+    },
+  }
 }
 
 // decodeProtocolMessage parses and validates one Buddy-SSH message from the wire.

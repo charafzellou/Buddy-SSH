@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -18,9 +19,11 @@ import (
 )
 
 type serverConfig struct {
-	address  string
-	password string
-	username string
+	address       string
+	password      string
+	username      string
+	authorizedKey string
+	kbdCode       string
 }
 
 func main() {
@@ -28,6 +31,8 @@ func main() {
 	flag.StringVar(&config.address, "addr", "127.0.0.1:2222", "listen address")
 	flag.StringVar(&config.username, "user", "ops", "accepted ssh username")
 	flag.StringVar(&config.password, "password", "top-secret", "accepted ssh password")
+	flag.StringVar(&config.authorizedKey, "authorized-key", "", "authorized_keys-format public key accepted for publickey auth (optional)")
+	flag.StringVar(&config.kbdCode, "kbd-code", "", "when set, enables keyboard-interactive auth requiring this verification code")
 	flag.Parse()
 
 	if err := run(config); err != nil {
@@ -41,6 +46,14 @@ func run(config serverConfig) error {
 		return err
 	}
 
+	var authorizedKey gossh.PublicKey
+	if config.authorizedKey != "" {
+		authorizedKey, _, _, _, err = gossh.ParseAuthorizedKey([]byte(config.authorizedKey))
+		if err != nil {
+			return fmt.Errorf("parse authorized key: %w", err)
+		}
+	}
+
 	sshConfig := &gossh.ServerConfig{
 		PasswordCallback: func(metadata gossh.ConnMetadata, presented []byte) (*gossh.Permissions, error) {
 			if metadata.User() != config.username || string(presented) != config.password {
@@ -49,6 +62,32 @@ func run(config serverConfig) error {
 
 			return nil, nil
 		},
+	}
+	if authorizedKey != nil {
+		sshConfig.PublicKeyCallback = func(metadata gossh.ConnMetadata, presented gossh.PublicKey) (*gossh.Permissions, error) {
+			if metadata.User() != config.username || !bytes.Equal(presented.Marshal(), authorizedKey.Marshal()) {
+				return nil, fmt.Errorf("unauthorized key")
+			}
+
+			return nil, nil
+		}
+	}
+	if config.kbdCode != "" {
+		sshConfig.KeyboardInteractiveCallback = func(metadata gossh.ConnMetadata, client gossh.KeyboardInteractiveChallenge) (*gossh.Permissions, error) {
+			if metadata.User() != config.username {
+				return nil, fmt.Errorf("invalid user")
+			}
+
+			answers, err := client("Two-factor", "Enter your verification code", []string{"Verification code:"}, []bool{true})
+			if err != nil {
+				return nil, err
+			}
+			if len(answers) != 1 || answers[0] != config.kbdCode {
+				return nil, fmt.Errorf("invalid verification code")
+			}
+
+			return nil, nil
+		}
 	}
 	sshConfig.AddHostKey(signer)
 

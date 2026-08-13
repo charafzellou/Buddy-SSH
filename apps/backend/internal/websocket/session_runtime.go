@@ -64,6 +64,16 @@ type activeSSHSession struct {
 	wait            <-chan error
 }
 
+// connectOutcome carries the result of a connectSSH call run in a goroutine
+// (only needed for keyboard-interactive, where the dial blocks on
+// challenge/response round-trips over the same websocket the main loop is
+// reading from, so it can't run synchronously in that loop).
+type connectOutcome struct {
+	session   *activeSSHSession
+	err       error
+	requestID *string
+}
+
 func newGatewaySession(gateway *Gateway, connection *ws.Conn, logger *slog.Logger, requestID string) *gatewaySession {
 	encoding := negotiatedEncoding(connection.Subprotocol())
 
@@ -93,11 +103,13 @@ func (session *gatewaySession) Run(ctx context.Context) error {
 	go session.readLoop(ctx, frames)
 
 	var (
-		haveAuth    bool
-		haveInit    bool
-		initMessage protocol.InitMessage
-		authMessage protocol.AuthMessage
-		sshState    *activeSSHSession
+		haveAuth     bool
+		haveInit     bool
+		initMessage  protocol.InitMessage
+		authMessage  protocol.AuthMessage
+		sshState     *activeSSHSession
+		kbdResponses chan []string
+		kbdResult    chan connectOutcome
 	)
 
 	defer closeActiveSSHSession(sshState)
@@ -110,6 +122,11 @@ func (session *gatewaySession) Run(ctx context.Context) error {
 			keepaliveResults = sshState.keepalive
 			sessionWait = sshState.wait
 			relayErrors = sshState.relayErrors
+		}
+
+		var kbdConnectResult <-chan connectOutcome
+		if kbdResult != nil {
+			kbdConnectResult = kbdResult
 		}
 
 		select {
@@ -153,6 +170,26 @@ func (session *gatewaySession) Run(ctx context.Context) error {
 				if !haveInit {
 					return session.writeProtocolError(ctx, header.ID, "AUTH requires a preceding INIT message")
 				}
+
+				if haveAuth {
+					// Only valid as a keyboard-interactive challenge
+					// response; the first AUTH already latched authMessage.
+					if kbdResponses == nil {
+						return session.writeProtocolError(ctx, header.ID, "unexpected AUTH: no keyboard-interactive challenge is pending")
+					}
+					if typed.Payload.KbdInteractive == nil {
+						return session.writeProtocolError(ctx, header.ID, "expected AUTH.kbdInteractive for a challenge response")
+					}
+
+					select {
+					case kbdResponses <- typed.Payload.KbdInteractive.Responses:
+					default:
+						return session.writeProtocolError(ctx, header.ID, "no keyboard-interactive challenge is currently awaiting a response")
+					}
+
+					continue
+				}
+
 				authMessage = typed
 				haveAuth = true
 			case protocol.ConnectMessage:
@@ -164,7 +201,28 @@ func (session *gatewaySession) Run(ctx context.Context) error {
 					return writeErr
 				}
 
-				active, connectErr := session.connectSSH(ctx, initMessage, authMessage, typed)
+				if initMessage.Payload.AuthMethod == "keyboard-interactive" {
+					// ssh.Dial blocks on challenge/response round-trips for
+					// this auth method, and those round-trips happen over
+					// this same websocket connection — running it inline
+					// here would deadlock the read loop that needs to
+					// relay the client's responses back to it. Run it in a
+					// goroutine and keep reading frames; the result arrives
+					// via kbdConnectResult below.
+					responses := make(chan []string)
+					result := make(chan connectOutcome, 1)
+					kbdResponses = responses
+					kbdResult = result
+					requestID := header.ID
+					connectInit, connectAuth, connectMsg := initMessage, authMessage, typed
+					go func() {
+						active, connectErr := session.connectSSH(ctx, connectInit, connectAuth, connectMsg, session.keyboardInteractiveChallenge(ctx, responses))
+						result <- connectOutcome{session: active, err: connectErr, requestID: requestID}
+					}()
+					continue
+				}
+
+				active, connectErr := session.connectSSH(ctx, initMessage, authMessage, typed, nil)
 				if connectErr != nil {
 					mapped := mapSessionError(connectErr)
 					_ = session.writeStatus(ctx, header.ID, statusStateError, &mapped.message)
@@ -172,29 +230,7 @@ func (session *gatewaySession) Run(ctx context.Context) error {
 				}
 
 				sshState = active
-
-				presented, ok := active.verifier.Presented()
-				if !ok {
-					return session.writeCloseError(ctx, header.ID, statusCodeInternal, "ssh handshake completed without host key metadata", ws.StatusInternalError)
-				}
-
-				connected := protocol.ConnectedMessage{
-					V:    1,
-					ID:   header.ID,
-					Type: "CONNECTED",
-					Payload: protocol.ConnectedPayload{
-						HostKey: protocol.ConnectedPayloadHostKey{
-							Algorithm:   presented.Algorithm,
-							Fingerprint: presented.Fingerprint,
-						},
-						ServerID:  targetServerID(initMessage),
-						SessionID: session.sessionID(),
-					},
-				}
-				if err := session.writeMessage(ctx, connected); err != nil {
-					return err
-				}
-				if err := session.writeStatus(ctx, header.ID, statusStateConnected, nil); err != nil {
+				if err := session.emitConnected(ctx, header.ID, initMessage, active); err != nil {
 					return err
 				}
 			case protocol.DataMessage:
@@ -236,6 +272,20 @@ func (session *gatewaySession) Run(ctx context.Context) error {
 				}
 				_ = session.connection.Close(ws.StatusNormalClosure, disconnectReasonClientClose)
 				return nil
+			}
+		case outcome := <-kbdConnectResult:
+			kbdResponses = nil
+			kbdResult = nil
+
+			if outcome.err != nil {
+				mapped := mapSessionError(outcome.err)
+				_ = session.writeStatus(ctx, outcome.requestID, statusStateError, &mapped.message)
+				return session.writeCloseError(ctx, outcome.requestID, mapped.code, mapped.message, ws.StatusInternalError)
+			}
+
+			sshState = outcome.session
+			if err := session.emitConnected(ctx, outcome.requestID, initMessage, outcome.session); err != nil {
+				return err
 			}
 		case err := <-relayErrors:
 			if err == nil {
@@ -284,14 +334,92 @@ func (session *gatewaySession) Run(ctx context.Context) error {
 	}
 }
 
+func (session *gatewaySession) emitConnected(
+	ctx context.Context,
+	id *string,
+	initMessage protocol.InitMessage,
+	active *activeSSHSession,
+) error {
+	presented, ok := active.verifier.Presented()
+	if !ok {
+		return session.writeCloseError(ctx, id, statusCodeInternal, "ssh handshake completed without host key metadata", ws.StatusInternalError)
+	}
+
+	connected := protocol.ConnectedMessage{
+		V:    1,
+		ID:   id,
+		Type: "CONNECTED",
+		Payload: protocol.ConnectedPayload{
+			HostKey: protocol.ConnectedPayloadHostKey{
+				Algorithm:   presented.Algorithm,
+				Fingerprint: presented.Fingerprint,
+			},
+			ServerID:  targetServerID(initMessage),
+			SessionID: session.sessionID(),
+		},
+	}
+	if err := session.writeMessage(ctx, connected); err != nil {
+		return err
+	}
+
+	return session.writeStatus(ctx, id, statusStateConnected, nil)
+}
+
+// keyboardInteractiveChallenge relays one SSH keyboard-interactive challenge
+// round-trip over the websocket: it writes a STATUS{challenge} to the
+// client and blocks until the main read loop forwards a matching AUTH's
+// responses over the responses channel (see the AuthMessage case in Run).
+// Runs on connectSSH's goroutine, not the main loop — session.writeMessage
+// is mutex-guarded so this is safe to call concurrently with the loop.
+func (session *gatewaySession) keyboardInteractiveChallenge(ctx context.Context, responses <-chan []string) backendssh.KeyboardInteractiveChallenge {
+	return func(name, instruction string, questions []string, echos []bool) ([]string, error) {
+		prompts := make([]protocol.StatusPayloadChallengePromptsItem, len(questions))
+		for index, question := range questions {
+			echo := false
+			if index < len(echos) {
+				echo = echos[index]
+			}
+			prompts[index] = protocol.StatusPayloadChallengePromptsItem{Text: question, Echo: echo}
+		}
+
+		challenge := &protocol.StatusPayloadChallenge{Prompts: prompts}
+		if name != "" {
+			challenge.Name = &name
+		}
+		if instruction != "" {
+			challenge.Instructions = &instruction
+		}
+
+		status := protocol.StatusMessage{
+			V:    1,
+			Type: "STATUS",
+			Payload: protocol.StatusPayload{
+				State:     statusStateConnecting,
+				Challenge: challenge,
+			},
+		}
+		if err := session.writeMessage(ctx, status); err != nil {
+			return nil, err
+		}
+
+		select {
+		case answers := <-responses:
+			return answers, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
 func (session *gatewaySession) connectSSH(
 	ctx context.Context,
 	initMessage protocol.InitMessage,
 	authMessage protocol.AuthMessage,
 	connectMessage protocol.ConnectMessage,
+	kbdChallenge backendssh.KeyboardInteractiveChallenge,
 ) (*activeSSHSession, error) {
 	verifier := backendssh.NewHostKeyVerifier(initMessage.Payload.HostKey, session.logger)
-	clientConfig, err := backendssh.BuildClientConfig(initMessage, authMessage, verifier.Callback())
+	clientConfig, err := backendssh.BuildClientConfig(initMessage, authMessage, verifier.Callback(), kbdChallenge)
 	if err != nil {
 		return nil, err
 	}

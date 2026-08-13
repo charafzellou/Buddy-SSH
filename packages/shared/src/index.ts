@@ -124,9 +124,28 @@ export const pongPayloadSchema = z.object({
 
 export const keepalivePayloadSchema = z.object({})
 
+// kbdInteractiveChallengeSchema carries the structured prompts for a
+// keyboard-interactive challenge (name/instructions plus per-prompt echo
+// flags), matching golang.org/x/crypto/ssh's KeyboardInteractiveChallenge
+// callback shape. Optional and additive to statusPayloadSchema so existing
+// STATUS consumers are unaffected; without it a kbd-interactive challenge
+// would be reduced to an unstructured message string and the frontend
+// couldn't render multiple prompts or respect individual echo flags.
+export const kbdInteractiveChallengeSchema = z.object({
+  name: z.string().optional(),
+  instructions: z.string().optional(),
+  prompts: z.array(
+    z.object({
+      text: z.string().min(1),
+      echo: z.boolean(),
+    }),
+  ),
+})
+
 export const statusPayloadSchema = z.object({
   state: connectionStateSchema,
   message: z.string().min(1).optional(),
+  challenge: kbdInteractiveChallengeSchema.optional(),
 })
 
 export const errorPayloadSchema = z.object({
@@ -209,6 +228,7 @@ export type ResizePayload = z.infer<typeof resizePayloadSchema>
 export type PingPayload = z.infer<typeof pingPayloadSchema>
 export type PongPayload = z.infer<typeof pongPayloadSchema>
 export type KeepalivePayload = z.infer<typeof keepalivePayloadSchema>
+export type KbdInteractiveChallenge = z.infer<typeof kbdInteractiveChallengeSchema>
 export type StatusPayload = z.infer<typeof statusPayloadSchema>
 export type ErrorPayload = z.infer<typeof errorPayloadSchema>
 export type DisconnectPayload = z.infer<typeof disconnectPayloadSchema>

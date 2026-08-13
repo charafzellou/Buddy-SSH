@@ -331,14 +331,27 @@
 
 ### M1.11 — Integration
 
-- [!] **M1.11.1** End-to-end manual test: `make dev` → quick connect to a
+- [✓] **M1.11.1** End-to-end manual test: `make dev` → quick connect to a
   real SSH server with password → interactive shell → resize → disconnect.
   - **Test:** manual checklist passes; no errors in console or backend logs.
-  - **Note:** Live smoke now reaches `/healthz`, websocket connect, terminal mount,
-    and connected/latency UI against a local SSH daemon, but the browser-driven
-    interactive keystroke step still disconnects before a full shell echo can be
-    verified. Automated WS→SSH byte round-trip coverage is in place under
-    M1.11.2.
+  - **Note:** Root cause found and fixed. The disconnect was a msgpack wire-format
+    bug, not a Vue reactivity issue: `encodeProtocolMessage` passed the DATA/STDERR
+    `data: number[]` straight to `@msgpack/msgpack`, which only emits the msgpack
+    "bin" format (matching Go's `[]byte` decode) for `Uint8Array` values — a plain
+    number array encodes as msgpack "array" instead, which the backend's
+    vmihailenco/msgpack decoder rejected, closing the socket with code 1008
+    ("policy violation") on the very first keystroke. Fixed in
+    `apps/frontend/src/services/protocol.ts` (`toWireBinaryPayload` converts
+    DATA/STDERR byte arrays to `Uint8Array` before msgpack-encoding). Verified live:
+    quick connect → typed `echo hello` → backend/mock-SSH log shows
+    `stdin "echo hello"` → session stayed open through typing, Enter, and resize
+    attempts, only closing on a clean page navigation (no errors). Added a
+    regression test (`protocol.test.ts`) asserting DATA/STDERR encode to msgpack
+    bin, not array — the previous round-trip test didn't catch this because it only
+    checked frontend encode→decode self-consistency, never the actual wire format.
+    Also tightened the swallowed `catch` in `useTerminal.ts`'s keystroke handler and
+    `transport.ts`'s `onclose` to surface (not silently discard) future transport
+    failures. `bun run test` (24/24) and `go test ./...` (all packages) pass.
 
 - [✓] **M1.11.2** Integration test: WS → in-process mock SSH server →
   byte round-trip (INIT/AUTH/CONNECT/DATA/RESIZE/DISCONNECT).
@@ -358,43 +371,90 @@
 
 ### M2.1 — Tab UI
 
-- [ ] **M2.1.1** Implement `components/tabs/TabItem.vue`: label, activity
+- [✓] **M2.1.1** Implement `components/tabs/TabItem.vue`: label, activity
   dot, disconnected indicator, color label, pin button, close button.
   - **Test:** unit test: props render correctly; click events emit.
+  - **Note:** `TabItem.test.ts` (5 tests) covers label/active/color rendering,
+    the disconnected-dim state, select/pin/close emits, and pinned button
+    state. Verified live in-browser (pin/close buttons work against a real
+    tab).
 
-- [ ] **M2.1.2** Implement `components/tabs/TabBar.vue`: render tabs from
+- [✓] **M2.1.2** Implement `components/tabs/TabBar.vue`: render tabs from
   `useSessionStore`; active tab highlighting; click to switch.
   - **Test:** unit test: renders N tabs; click switches active.
+  - **Note:** Built under `components/layout/TabBar.vue` (per
+    `04-frontend-design.md`'s module map, not `components/tabs/`) and wired
+    into `WorkspaceView.vue`, replacing the inline tab-switcher buttons.
+    `TabBar.test.ts` (4 tests) covers empty state, N-tab rendering + switch,
+    and pin/close wiring. Verified live: connect → tablist renders → close
+    button removes the tab and restores the empty state.
 
-- [ ] **M2.1.3** Implement tab drag-and-drop reorder (VueUse
+- [✓] **M2.1.3** Implement tab drag-and-drop reorder (VueUse
   `useDraggable` or a lightweight library).
   - **Test:** unit test: drag tab from index 0 to 2; `reorder` called with
     new order.
+  - **Note:** Implemented with native HTML5 drag-and-drop (no added
+    dependency) in `TabBar.vue`; dropping tab A onto tab B moves A to B's
+    index via the store's `reorder` action. Unit test simulates
+    dragstart/drop and asserts the resulting tab order.
 
 ### M2.2 — Session store multi-tab
 
-- [ ] **M2.2.1** Extend `useSessionStore`: `renameTab`, `duplicateTab`,
+- [✓] **M2.2.1** Extend `useSessionStore`: `renameTab`, `duplicateTab`,
   `pinTab`, `reconnect`, `reconnectAll`, `reorder`.
   - **Test:** unit test: each action mutates state correctly; duplicate
     creates an independent tab.
+  - **Note:** 7 new unit tests added to `useSessionStore.test.ts`.
+    `reconnect`/`reconnectAll` reset tab state and re-open the transport's
+    websocket pipe (if one exists) but cannot replay INIT/AUTH/CONNECT since
+    credentials are never persisted in the store — replaying the handshake
+    is the caller's responsibility (documented inline).
 
-- [ ] **M2.2.2** Ensure each tab owns an independent `transport` and
+- [✓] **M2.2.2** Ensure each tab owns an independent `transport` and
   `TerminalPane`; closing a tab disposes both.
   - **Test:** unit test: close tab → transport.close called; terminal
     disposed; no leak (weakref check or counter).
+  - **Note:** Found and fixed an architecture gap beyond this task's literal
+    wording: `WorkspaceView.vue` previously mounted a single `TerminalPane`
+    rebound to whichever tab was active, destroying/recreating the xterm.js
+    instance (and scrollback) on every tab switch. Reworked to mount one
+    persistent `TerminalPane` per open tab (`v-for` keyed by tab id,
+    `v-show` toggling the active one); added an `active` prop so a
+    reactivated pane re-fits and refocuses (a `v-show`-hidden pane reports
+    zero size to `ResizeObserver`). Closing a tab still unmounts exactly
+    that tab's `TerminalPane` (existing `closeTab` already calls
+    `transport.close()` before removing it from the list). Verified live:
+    opened 2 tabs, typed a distinct marker in each, switched between them
+    repeatedly — each tab's keystrokes only ever reached its own SSH
+    session, confirmed via the mock server's `stdin` log.
 
 ### M2.3 — Keyboard shortcuts
 
-- [ ] **M2.3.1** Implement `composables/useKeyboardShortcuts.ts`: new tab
+- [✓] **M2.3.1** Implement `composables/useKeyboardShortcuts.ts`: new tab
   (Cmd/Ctrl+T), close tab (Cmd/Ctrl+W), switch tab (Cmd/Ctrl+Tab / number
   keys), reconnect (Cmd/Ctrl+R).
   - **Test:** unit test: each shortcut triggers the expected store action.
+  - **Note:** 6 unit tests cover each binding plus dispose/no-modifier
+    cases. Wired into `WorkspaceView.vue` (Ctrl+T opens Quick Connect,
+    Ctrl+W closes the active tab, Ctrl+Tab/Shift+Tab and Ctrl+1-9 switch
+    tabs, Ctrl+R reconnects). Verified live in-browser: Ctrl+T opened the
+    dialog without spawning a real browser tab, Ctrl+1 switched
+    `aria-selected`, Ctrl+W closed only the active app tab.
 
 ### M2.4 — Multi-tab integration
 
-- [ ] **M2.4.1** Open ≥5 concurrent tabs to different hosts; verify all
+- [✓] **M2.4.1** Open ≥5 concurrent tabs to different hosts; verify all
   interactive independently.
   - **Test:** manual checklist; memory per tab < 8 MB (DevTools snapshot).
+  - **Note:** Opened 5 concurrent tabs against the local mock SSH server
+    (no 5 distinct real hosts available in this environment, same
+    convention as M1's testing); typed a distinct marker into each after
+    switching via Ctrl+1..5 — the mock server's `stdin` log shows all 5
+    markers landing on 5 distinct SSH connections. `performance.memory`
+    showed ~21 MB total JS heap with 5 tabs open (~4.2 MB/tab average
+    including fixed app overhead), well under the 8 MB/tab budget; a precise
+    per-tab DevTools heap-snapshot diff wasn't available through the
+    tooling used here. Closed all 5 tabs via Ctrl+W with no errors.
 
 ---
 
@@ -406,38 +466,107 @@
 
 ### M3.1 — Frontend key parsing
 
-- [ ] **M3.1.1** Add a vetted SSH key parser dep (e.g., `sshpk` or
+- [✓] **M3.1.1** Add a vetted SSH key parser dep (e.g., `sshpk` or
   `node-forge`); evaluate and pick in a mini-ADR or ADR-0002 addendum.
   - **Test:** parser loads OpenSSH and PEM formats; rejects invalid keys.
+  - **Note:** `sshpk` was tried first, bundled cleanly per `bun run build`,
+    but crashed the entire app at runtime in a real browser
+    (`ReferenceError: process is not defined`) — a clean Vite build with
+    "externalized for browser compatibility" warnings does **not** prove
+    browser runtime compatibility; only loading the page does. Reverted to
+    `node-forge` (genuinely browser-safe, verified live) for PEM/PKCS1/PKCS8
+    plus a small hand-rolled binary reader (no dependency) for OpenSSH's
+    `openssh-key-v1` format, since the public-key section of that format is
+    always cleartext even when encrypted. Full writeup in the ADR-0002
+    addendum. `sshKeyParser.ts` + 9 unit tests using real `ssh-keygen`
+    -generated fixtures (unencrypted/encrypted ed25519 + PEM RSA).
 
-- [ ] **M3.1.2** Implement `components/connect/AuthPrompt.vue`: modal for
+- [✓] **M3.1.2** Implement `components/connect/AuthPrompt.vue`: modal for
   key upload (file picker + textarea), passphrase input, kbd-interactive
   challenge rendering.
   - **Test:** unit test: file upload reads key; passphrase masked;
     kbd-interactive renders N prompts.
+  - **Note:** 5 unit tests (real file upload via `FileReader`, encrypted-key
+    passphrase field, invalid-key disables submit, N kbd-interactive prompts
+    with per-prompt echo, cancel emits). Also wired into `QuickConnectDialog`
+    (auth-method selector: password/private key/keyboard-interactive) and
+    `WorkspaceView.vue`'s connect flow — verified live end-to-end in-browser
+    against the mock SSH server for all three methods (see M3.2.1/M3.2.2).
 
 ### M3.2 — Backend auth methods
 
-- [ ] **M3.2.1** Extend `internal/ssh/client.go`: build `ssh.PublicKeysAuth`
+- [✓] **M3.2.1** Extend `internal/ssh/client.go`: build `ssh.PublicKeysAuth`
   from parsed key + passphrase.
   - **Test:** unit test: valid key + correct passphrase → auth method;
     wrong passphrase → dial fails (mock server).
+  - **Note:** 6 unit tests (unencrypted/encrypted-correct/encrypted-wrong/
+    encrypted-missing-passphrase/missing-key/garbage-key) using real
+    `ssh-keygen`-generated key fixtures. Extended `mock-ssh-server` with an
+    `-authorized-key` flag. Verified live end-to-end: connect with the
+    authorized ed25519 key → shell interactive (byte round-trip confirmed
+    via backend log); connect with an unauthorized RSA key → rejected,
+    UI shows Disconnected.
 
-- [ ] **M3.2.2** Extend `internal/ssh/client.go`: build
+- [✓] **M3.2.2** Extend `internal/ssh/client.go`: build
   `ssh.KeyboardInteractive` auth method; relay challenges via STATUS +
   AUTH iteration.
   - **Test:** integration test with mock kbd-interactive server: challenge
     → response → success.
+  - **Note:** Required more than the client.go stub: `ssh.Dial` blocks
+    inside the keyboard-interactive challenge callback, and that callback
+    needs to write a STATUS to the client and block reading the client's
+    response — but `connectSSH` was being called synchronously from the
+    same read loop that needs to keep reading incoming frames to relay that
+    response, which would deadlock. Restructured `session_runtime.go`
+    to run `connectSSH` in a goroutine for this auth method only, with a new
+    `connectOutcome` channel feeding the result back into the main `select`
+    loop, and an unbuffered `kbdResponses` channel the main loop's `AUTH`
+    case forwards challenge-response messages into. Also extended the
+    `packages/shared` `STATUS` payload with an optional `challenge` field
+    (name/instructions/prompts with per-prompt echo flags) since the
+    existing flat `message: string` couldn't represent multiple named,
+    echo-flagged prompts — see M3.3.1. Extended `conn.go`'s state machine to
+    accept `AUTH` while in `StateConnected` (the local state machine reaches
+    CONNECTED as soon as `CONNECT` is received, before the async dial +
+    challenge round-trips actually finish); `session_runtime.go` rejects a
+    stray AUTH if no challenge is actually pending. 2 new integration tests
+    (challenge→correct-response→success, challenge→wrong-response→
+    AUTH_FAILED) using a real mock SSH server, run 20× to check for
+    scheduling-order flakiness (`-race` unavailable — this Windows dev
+    machine has no C compiler; flagged as a follow-up to enable in CI on
+    Linux). Extended `mock-ssh-server` with a `-kbd-code` flag; verified
+    live end-to-end for both the correct-code (shell interactive, byte
+    round-trip confirmed) and wrong-code (rejected, Disconnected) paths.
 
 ### M3.3 — Protocol & secret handling
 
-- [ ] **M3.3.1** Extend `packages/shared` AUTH payload for `publickey` and
+- [✓] **M3.3.1** Extend `packages/shared` AUTH payload for `publickey` and
   `kbdInteractive`; regenerate Go types.
   - **Test:** codegen fresh; round-trip tests pass for new payload shapes.
+  - **Note:** The AUTH payload's `publickey`/`kbdInteractive` shapes already
+    existed from the M0.4 protocol scaffolding — confirmed via
+    `bun run gen-protocol` (idempotent, no diff) and the existing
+    `protocolFixtures()` round-trip test. Did extend `STATUS` with the new
+    `challenge` field needed for M3.2.2 (see above); added a matching
+    round-trip fixture to `protocol.test.ts` and a Go-side
+    `TestMarshalUnmarshalStatusMessageWithChallenge` in `codec_test.go`.
 
-- [ ] **M3.3.2** Ensure decrypted keys live in memory only for the AUTH
+- [✓] **M3.3.2** Ensure decrypted keys live in memory only for the AUTH
   send; zeroize after.
   - **Test:** unit test: plaintext key buffer zeroed after transport.send.
+  - **Note:** Frontend: `AuthPrompt.vue` encodes the key/passphrase to
+    `Uint8Array` at submit time (clearing the source string refs
+    immediately after); `services/authSubmission.ts`'s `sendPublicKeyAuth`
+    decodes only for the `transport.send` call, then zeroizes both buffers
+    in a `finally` (so it happens even if send throws) via
+    `crypto/zeroize.ts` — 3 unit tests including the throw case. This is
+    also a documented, best-effort limitation (JS strings are immutable, so
+    the decoded string handed to msgpack-encode can't itself be
+    zero-filled — noted in a comment, matching the backend's own
+    "best-effort, documented" zeroization precedent). Backend: the existing
+    `credentialBuffers`/`Zeroize` helpers from M1.5.5 already covered
+    `Publickey.Key`/`Publickey.Passphrase` — confirmed by inspection, no
+    change needed.
 
 ---
 
@@ -450,31 +579,77 @@
 
 ### M4.1 — Frontend known-hosts store
 
-- [ ] **M4.1.1** Implement `useKnownHostsStore`: IndexedDB `knownHosts`
+- [✓] **M4.1.1** Implement `useKnownHostsStore`: IndexedDB `knownHosts`
   store; encrypted read/write (depends on M6 crypto — if M6 not done, use
   interim in-memory key with a documented TODO).
   - **Test:** unit test: pin → lookup → match; tampered record fails.
+  - **Note:** Added `services/storage.ts` (new — `idb`-based, scoped to the
+    `knownHosts` store for now; M5.1.1 extends the same file with
+    profiles/settings/encryptedKeys/meta via an additive version bump, per
+    `07-storage-spec.md` §4's migration strategy) and
+    `crypto/interimKnownHostsKey.ts` (a random, non-extractable, in-memory
+    AES-256-GCM key regenerated per page session — documented TODO to swap
+    for a real HKDF subkey once M6's `useAuthStore`/`crypto/keys.ts` exist;
+    known-hosts protection doesn't yet survive a reload, but TOFU mismatch
+    detection works correctly within a session). Fingerprints are
+    AES-256-GCM encrypted at rest via Web Crypto; tamper test flips a
+    ciphertext byte and asserts decrypt throws. 6 unit tests using
+    `fake-indexeddb` (added as a dev dependency).
 
-- [ ] **M4.1.2** Implement first-use fingerprint prompt UI: show algorithm
+- [✓] **M4.1.2** Implement first-use fingerprint prompt UI: show algorithm
   + SHA-256 fingerprint; accept/reject buttons.
   - **Test:** unit test: accept pins; reject aborts connection.
+  - **Note:** `components/connect/HostKeyPrompt.vue`, 4 unit tests. Per the
+    TOFU sequence diagram (`09-diagrams.md` §5) the prompt fires *after*
+    CONNECTED, not by blocking the dial — `WorkspaceView.vue`'s `openSession`
+    now looks up `knownHostsStore` before sending INIT (choosing `pinned`
+    vs `first-use` mode), and the CONNECTED handler shows the prompt only
+    when the host wasn't already pinned. Verified live end-to-end (see
+    M4.3.1).
 
-- [ ] **M4.1.3** Implement mismatch warning UI: show old vs new fingerprint;
+- [✓] **M4.1.3** Implement mismatch warning UI: show old vs new fingerprint;
   require explicit friction (type hostname to confirm) to re-pin.
   - **Test:** unit test: mismatch shows warning; re-pin requires confirmation.
+  - **Note:** `components/connect/HostKeyMismatchWarning.vue`, 3 unit tests.
+    The backend's `ERROR{HOST_KEY_MISMATCH}` only carries a free-text message
+    (`hostkey.go`'s `"host key mismatch for %s: got %s want %s"`) — no
+    structured field for the newly presented fingerprint — so
+    `WorkspaceView.vue` parses it out with a small regex rather than
+    extending the ERROR payload again on top of M3.2.2's STATUS.challenge
+    addition. Re-pin does *not* auto-reconnect (the backend already closed
+    the connection and credentials aren't persisted to silently retry with);
+    it only updates the pinned record for the next connection attempt.
 
 ### M4.2 — Backend host-key callback
 
-- [ ] **M4.2.1** Finalize `internal/ssh/hostkey.go`: honor `mode: 'pinned'`
+- [✓] **M4.2.1** Finalize `internal/ssh/hostkey.go`: honor `mode: 'pinned'`
   with SHA-256 compare; mismatch → `ERROR{HOST_KEY_MISMATCH}`; never persist.
   - **Test:** integration test: pinned match → CONNECTED; mismatch → ERROR
     + connection closed.
+  - **Note:** The callback itself was already fully implemented and unit
+    tested back in M1.5.2 (first-use/pinned-match/pinned-mismatch, all
+    still passing). Added the missing integration-level test today
+    (`TestNewHandlerHostKeyPinning`): first-use connect captures the mock
+    server's real fingerprint, a second connect pins-and-matches →
+    CONNECTED, a third with a wrong fingerprint → ERROR{HOST_KEY_MISMATCH}.
 
 ### M4.3 — Integration
 
-- [ ] **M4.3.1** End-to-end: first connect → prompt → accept → pin; second
+- [✓] **M4.3.1** End-to-end: first connect → prompt → accept → pin; second
   connect → silent verify; simulate changed key → warning + abort.
   - **Test:** automated E2E test against a mock SSH server with two keys.
+  - **Note:** Covered by the backend integration test above plus 3 new
+    `WorkspaceView.test.ts` cases (prompt-and-pin, reject-closes-transport,
+    skip-prompt-when-pinned, mismatch-with-friction-repin). Also verified
+    live end-to-end in-browser against the real mock SSH server: (1) first
+    connect to an unpinned host → prompt with the real fingerprint → accept
+    → confirmed pinned in IndexedDB; (2) second connect to the same host →
+    silent verify, no prompt (backend's pinned-match path logs nothing on
+    success, by design — only `first-use` logs); (3) restarted the mock
+    server (fresh random host key, same host:port) → third connect →
+    ERROR{HOST_KEY_MISMATCH} → mismatch warning showing the correct old vs
+    new fingerprints → re-pin button disabled until the hostname was typed
+    → re-pin updated `pinnedAt` in IndexedDB while preserving `firstSeen`.
 
 ---
 
@@ -486,32 +661,73 @@
 
 ### M5.1 — Storage service
 
-- [ ] **M5.1.1** Implement `services/storage.ts`: IndexedDB wrapper (use
+- [✓] **M5.1.1** Implement `services/storage.ts`: IndexedDB wrapper (use
   `idb` library); `profiles`, `settings`, `meta` stores; CRUD + indexes.
   - **Test:** unit test: CRUD on each store; index lookups; migration
-    handler runs on version bump.
+    handler runs on version bump. `storage.test.ts` — passing.
+  - **Note:** found and fixed two related bugs surfaced by live browser
+    testing (not caught by `fake-indexeddb` unit tests alone):
+    (1) profile edits from the UI silently failed to persist —
+    `DataCloneError: could not be cloned` — because `Profile.terminalPrefs`/
+    `connectionPrefs` are sourced from Vue-reactive store state, and nested
+    Proxies aren't structured-cloneable by real IndexedDB. Fixed with a
+    `deepToRaw()` helper applied in every `put*` function.
+    (2) `deepToRaw`'s initial `value instanceof ArrayBuffer` guard is
+    realm-sensitive and failed across the jsdom/Node global boundary in
+    tests, silently turning the known-hosts ciphertext `ArrayBuffer` into an
+    empty `{}` (which then failed AES-GCM decrypt). Fixed by switching to
+    `Object.prototype.toString.call(value) === '[object ArrayBuffer]'`,
+    which is realm-safe. Verified via full unit suite (108/108 passing) and
+    live in-browser: edited a profile's folder/tags, confirmed via direct
+    IndexedDB query that the record persisted with updated `updatedAt` and
+    no console errors.
 
 ### M5.2 — Profile store & UI
 
-- [ ] **M5.2.1** Implement `useProfileStore`: load on startup (TanStack
+- [✓] **M5.2.1** Implement `useProfileStore`: load on startup (TanStack
   Query); mutations write through to IndexedDB.
   - **Test:** unit test: save → list includes; delete → list excludes;
-    invalidation refetches.
+    invalidation refetches. `useProfileStore.test.ts` — passing.
 
-- [ ] **M5.2.2** Implement `components/profiles/ProfileList.vue`,
+- [✓] **M5.2.2** Implement `components/profiles/ProfileList.vue`,
   `ProfileCard.vue`, `ProfileEditor.vue` in the sidebar.
   - **Test:** unit test: list renders; edit saves; card click opens connect.
+    `ProfileList.test.ts`, `ProfileCard.test.ts`, `ProfileEditor.test.ts` —
+    passing.
 
-- [ ] **M5.2.3** Implement `views/ProfilesView.vue` for full management;
+- [✓] **M5.2.3** Implement `views/ProfilesView.vue` for full management;
   folders, tags, notes, colors.
-  - **Test:** manual — create, edit, delete, folder-assign profiles.
+  - **Test:** manual — created "Local mock server" profile, edited folder
+    ("Dev Servers") and tags ("test, local") live in-browser, confirmed via
+    direct IndexedDB query the record persisted correctly (see M5.1.1 note
+    for the DataCloneError bug this surfaced and fixed). Delete flow uses
+    inline confirm (not native `window.confirm`), folder filter chips
+    verified rendering.
 
 ### M5.3 — Import/export
 
-- [ ] **M5.3.1** Implement profile import/export (JSON; no secrets ever
+- [✓] **M5.3.1** Implement profile import/export (JSON; no secrets ever
   included).
-  - **Test:** unit test: export → import round-trips; exported JSON contains
-    no `password`/`passphrase`/`key` fields.
+  - **Implementation:** `services/profileImportExport.ts` — `exportProfiles()`
+    sanitizes via an explicit field allow-list (not raw `JSON.stringify`), so
+    any future secret-bearing field added to `Profile` must be deliberately
+    added here too, rather than leaking by default. `importProfiles()`
+    validates required fields and assigns fresh ids/timestamps (never reuses
+    the exported id, so import never silently overwrites an existing
+    profile). Wired into `ProfilesView.vue` with Import/Export buttons
+    (Export downloads a dated `.json` file via a Blob URL; Import reads a
+    picked file, reports success/error inline).
+  - **Test:** `profileImportExport.test.ts` (6 cases) — round-trip preserves
+    fields, fresh id/timestamps on import, exported JSON has zero
+    `password`/`passphrase`/`privateKey` **keys** (checked structurally via a
+    `JSON.parse` reviver, not substring match, since `authType` legitimately
+    has the string *value* `"password"`), invalid JSON rejected, non-export
+    JSON rejected, profile missing required fields rejected. Full suite
+    114/114 passing. Live in-browser: exported the existing profile (no
+    console errors), imported a synthetic profile via a dispatched file
+    `change` event — new "Imported" folder group and profile card appeared
+    immediately with an "Imported 1 profile." status message, then deleted
+    it via the existing inline-confirm delete flow.
 
 ---
 
@@ -724,15 +940,15 @@
 | Milestone | Tasks | Done | Tested |
 |-----------|-------|------|--------|
 | M0 | 23 | 23 | 23 |
-| M1 | 33 | 32 | 32 |
-| M2 | 7 | 0 | 0 |
-| M3 | 6 | 0 | 0 |
-| M4 | 5 | 0 | 0 |
-| M5 | 5 | 0 | 0 |
+| M1 | 33 | 33 | 33 |
+| M2 | 7 | 7 | 7 |
+| M3 | 6 | 6 | 6 |
+| M4 | 5 | 5 | 5 |
+| M5 | 5 | 5 | 5 |
 | M6 | 10 | 0 | 0 |
 | M7 | 5 | 0 | 0 |
 | M8 | 11 | 0 | 0 |
 | M9 | 7 | 0 | 0 |
-| **Total** | **112** | **55** | **55** |
+| **Total** | **112** | **79** | **79** |
 
 > Update these counters as tasks complete.

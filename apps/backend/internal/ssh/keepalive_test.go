@@ -42,7 +42,7 @@ func TestStartKeepaliveTriggersIdleTimeout(t *testing.T) {
 		},
 	}
 
-	clientConfig, err := BuildClientConfig(initMessage, authMessage, nil)
+	clientConfig, err := BuildClientConfig(initMessage, authMessage, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildClientConfig() error = %v", err)
 	}

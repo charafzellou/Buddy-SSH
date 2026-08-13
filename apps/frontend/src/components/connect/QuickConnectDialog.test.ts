@@ -19,13 +19,14 @@ describe('QuickConnectDialog', () => {
     root.remove()
   })
 
-  it('parses valid input and opens a tab on submit', async () => {
+  it('parses valid input and opens a tab on submit (password auth)', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useSessionStore()
     const openTab = vi.spyOn(store, 'openTab')
+    const onConnect = vi.fn()
 
-    const app = createApp(QuickConnectDialog, { open: true })
+    const app = createApp(QuickConnectDialog, { open: true, onConnect })
     app.use(pinia)
     app.mount(root)
 
@@ -46,6 +47,45 @@ describe('QuickConnectDialog', () => {
       label: 'ops@example.com',
       state: 'connecting',
     })
+    expect(onConnect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        username: 'ops',
+        host: 'example.com',
+        port: 22,
+        authMethod: 'password',
+        password: 'top-secret',
+      }),
+    )
+    app.unmount()
+  })
+
+  it('switches to publickey auth: no password required, payload carries authMethod', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const onConnect = vi.fn()
+
+    const app = createApp(QuickConnectDialog, { open: true, onConnect })
+    app.use(pinia)
+    app.mount(root)
+
+    const destination = root.querySelector('input') as HTMLInputElement
+    destination.value = 'ops@example.com:22'
+    destination.dispatchEvent(new Event('input'))
+
+    const radios = root.querySelectorAll('[role="radio"]')
+    ;(radios[1] as HTMLButtonElement).dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+
+    expect(root.querySelector('input[type="password"]')).toBeNull()
+
+    root
+      .querySelector('form')
+      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await nextTick()
+
+    expect(onConnect).toHaveBeenCalledWith(
+      expect.objectContaining({ authMethod: 'publickey', password: undefined }),
+    )
     app.unmount()
   })
 

@@ -1,17 +1,25 @@
 <script setup lang="ts">
 import { useSessionStore } from '@/stores/useSessionStore'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+
+export type QuickConnectAuthMethod = 'password' | 'publickey' | 'keyboard-interactive'
 
 export interface QuickConnectPayload {
   tabId: string
   username: string
   host: string
   port: number
-  password: string
+  authMethod: QuickConnectAuthMethod
+  password?: string
+  profileId?: string
 }
 
 const props = defineProps<{
   open: boolean
+  initialDestination?: string
+  initialAuthMethod?: QuickConnectAuthMethod
+  profileId?: string
+  profileLabel?: string
 }>()
 
 const emit = defineEmits<{
@@ -22,9 +30,23 @@ const emit = defineEmits<{
 const store = useSessionStore()
 const destination = ref('')
 const password = ref('')
+const authMethod = ref<QuickConnectAuthMethod>('password')
 const errorMessage = ref('')
 
 const isVisible = computed(() => props.open)
+
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) {
+      return
+    }
+
+    destination.value = props.initialDestination ?? ''
+    authMethod.value = props.initialAuthMethod ?? 'password'
+  },
+  { immediate: true },
+)
 
 function closeDialog(): void {
   errorMessage.value = ''
@@ -38,14 +60,15 @@ function submit(): void {
     return
   }
 
-  if (password.value.trim() === '') {
-    errorMessage.value = 'Password is required for the MVP flow'
+  if (authMethod.value === 'password' && password.value.trim() === '') {
+    errorMessage.value = 'Password is required'
     return
   }
 
   const tab = store.openTab({
-    label: `${parsed.username}@${parsed.host}`,
+    label: props.profileLabel ?? `${parsed.username}@${parsed.host}`,
     state: 'connecting',
+    profileId: props.profileId,
   })
 
   emit('connect', {
@@ -53,7 +76,9 @@ function submit(): void {
     username: parsed.username,
     host: parsed.host,
     port: parsed.port,
-    password: password.value,
+    authMethod: authMethod.value,
+    password: authMethod.value === 'password' ? password.value : undefined,
+    profileId: props.profileId,
   })
 
   destination.value = ''
@@ -104,7 +129,40 @@ function parseDestination(value: string): { username: string; host: string; port
 					/>
 				</label>
 
-				<label class="block space-y-2">
+				<div class="flex gap-2" role="radiogroup" aria-label="Authentication method">
+					<button
+						type="button"
+						role="radio"
+						:aria-checked="authMethod === 'password'"
+						class="rounded-full border px-4 py-1.5 text-sm font-medium transition"
+						:class="authMethod === 'password' ? 'border-sky-400 bg-sky-500/10 text-sky-600 dark:text-sky-300' : 'border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'"
+						@click="authMethod = 'password'"
+					>
+						Password
+					</button>
+					<button
+						type="button"
+						role="radio"
+						:aria-checked="authMethod === 'publickey'"
+						class="rounded-full border px-4 py-1.5 text-sm font-medium transition"
+						:class="authMethod === 'publickey' ? 'border-sky-400 bg-sky-500/10 text-sky-600 dark:text-sky-300' : 'border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'"
+						@click="authMethod = 'publickey'"
+					>
+						Private Key
+					</button>
+					<button
+						type="button"
+						role="radio"
+						:aria-checked="authMethod === 'keyboard-interactive'"
+						class="rounded-full border px-4 py-1.5 text-sm font-medium transition"
+						:class="authMethod === 'keyboard-interactive' ? 'border-sky-400 bg-sky-500/10 text-sky-600 dark:text-sky-300' : 'border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'"
+						@click="authMethod = 'keyboard-interactive'"
+					>
+						Keyboard Interactive
+					</button>
+				</div>
+
+				<label v-if="authMethod === 'password'" class="block space-y-2">
 					<span class="text-sm font-medium">Password</span>
 					<input
 						v-model="password"
@@ -113,6 +171,12 @@ function parseDestination(value: string): { username: string; host: string; port
 						class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-200 dark:border-slate-800 dark:bg-slate-900"
 					/>
 				</label>
+				<p v-else-if="authMethod === 'publickey'" class="text-sm text-[var(--app-muted)]">
+					You'll be prompted for your private key after clicking Connect.
+				</p>
+				<p v-else class="text-sm text-[var(--app-muted)]">
+					You'll be prompted for any challenges the server asks for after clicking Connect.
+				</p>
 
 				<p v-if="errorMessage" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300">
 					{{ errorMessage }}
