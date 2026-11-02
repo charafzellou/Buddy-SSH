@@ -18,7 +18,7 @@
     "lint": "bunx @biomejs/biome check src"
   },
   "dependencies": {
-    "zod": "^3.24.0",
+    "zod": "^4.6.7",
     "zod-to-json-schema": "^3.23.5"
   }
 }
